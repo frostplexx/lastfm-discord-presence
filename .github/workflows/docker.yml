@@ -7,6 +7,7 @@ on:
 
 env:
   REGISTRY: ghcr.io
+  SDK_VERSION: 1.9.17379
 
 jobs:
   docker:
@@ -17,6 +18,36 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      # ── Discord Social SDK (cached) ────────────────────────────────────
+      # DISCORD_SDK_URL is a signed Google Storage URL valid ~1hr.
+      # Cache persists across runs — re-fetch only on version bump.
+      - name: Cache Discord SDK
+        id: cache-sdk
+        uses: actions/cache@v4
+        with:
+          path: vendor/discord-sdk
+          key: discord-sdk-${{ env.SDK_VERSION }}
+
+      - name: Download SDK (cache miss)
+        if: steps.cache-sdk.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p vendor/discord-sdk
+          curl -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
+          unzip -q sdk.zip -d vendor/discord-sdk
+          rm sdk.zip
+          # Verify minimal expected file
+          test -f vendor/discord-sdk/include/discordpp.h
+
+      # Symlink cached SDK into lib/ so Docker's COPY lib/ finds it.
+      # On cache miss the download step already populated vendor/discord-sdk.
+      # On cache hit, actions/cache restored it.
+      - name: Place SDK where Docker expects it
+        run: |
+          if [ -d vendor/discord-sdk/include ]; then
+            ln -sfn vendor/discord-sdk lib/discord_social_sdk
+          fi
+          test -f lib/discord_social_sdk/include/discordpp.h
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3

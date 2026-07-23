@@ -1,5 +1,8 @@
 # ── Multi-stage Docker build ─────────────────────────────────────────────────
-# The Discord Social SDK is vendored at lib/discord_social_sdk/.
+# Requires Discord Social SDK at lib/discord_social_sdk/ in the build context.
+# Local dev: symlink or copy the SDK there (it's gitignored).
+# CI: actions/cache + DISCORD_SDK_URL populates vendor/discord-sdk, then
+#     symlinked into lib/ before this build runs.
 
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
 FROM ubuntu:24.04 AS builder

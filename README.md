@@ -102,8 +102,13 @@ The workflow at `.github/workflows/docker.yml` builds and pushes to `ghcr.io`.
 
 **Required secret:**
 
-| Secret             | Description                                        |
-| ------------------ | -------------------------------------------------- |
+| Secret             | Description                                               |
+| ------------------ | --------------------------------------------------------- |
+| `DISCORD_SDK_URL`  | Signed GCS URL for Discord Social SDK (from Developer Portal) |
+
+The URL expires in ~1hr, but the SDK is cached via `actions/cache` —
+re-fetched only when the version key in the workflow is bumped.
+
 Push to `main` triggers the build. Images are tagged with branch name and commit SHA.
 
 ## Project structure
@@ -115,7 +120,7 @@ Push to `main` triggers the build. Images are tagged with branch name and commit
 ├── flake.nix                   # Nix dev shell (alternative dev env)
 ├── justfile                    # Task runner (build, run, sign, docker, etc.)
 ├── lib/
-│   ├── discord_social_sdk/     # Discord Social SDK (vendored)
+│   ├── discord_social_sdk/     # → Discord Social SDK (gitignored symlink/download)
 │   ├── json.hpp                # Vendored nlohmann/json single header
 │   └── nlohmann/json.hpp       # Copy for <nlohmann/json.hpp> include
 ├── src/
