@@ -58,7 +58,7 @@ just run
 ### 4. Build and run (Docker)
 
 ```sh
-just docker-build
+just docker-build   # resolves SDK symlink automatically
 
 # Run with env vars:
 docker run --rm -it \
@@ -68,6 +68,10 @@ docker run --rm -it \
   -v lastfm-presence-token:/data \
   lastfm-discord-presence
 ```
+
+> `just docker-build` temporarily replaces the symlink at `lib/discord_social_sdk`
+> with real files so Docker can include them in the build context.
+> The symlink is restored when the build finishes.
 
 ### 5. Deploy with docker-compose
 

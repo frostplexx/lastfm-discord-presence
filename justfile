@@ -47,8 +47,19 @@ run-demo: build sign
     ./lastfm-discord-presence
 
 # Build Docker image (local)
+# Docker's COPY can't follow symlinks outside the build context.
+# If SKD is a symlink into e.g. ~/Downloads, resolve it first.
 docker-build:
-    docker build -t lastfm-discord-presence .
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ -L lib/discord_social_sdk ]; then
+      target="$(readlink lib/discord_social_sdk)"
+      echo "resolving SDK symlink → $target"
+      rm lib/discord_social_sdk
+      cp -RL "$target" lib/discord_social_sdk
+      trap 'ln -sf "$target" lib/discord_social_sdk' EXIT
+    fi
+    exec docker build -t lastfm-discord-presence .
 
 # Run locally via Docker (set .env or pass vars)
 docker-run:
