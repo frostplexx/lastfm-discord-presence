@@ -32,11 +32,19 @@ jobs:
       - name: Download SDK (cache miss)
         if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
-          mkdir -p vendor/discord-sdk
+          mkdir -p vendor/_sdk
           curl -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
-          unzip -q sdk.zip -d vendor/discord-sdk
+          unzip -q sdk.zip -d vendor/_sdk
           rm sdk.zip
-          # Verify minimal expected file
+          # Zip may have a top-level dir (DiscordSocialSdk-1.9.17379/).
+          # Flatten: move contents up so include/ is at the top.
+          if [ -f vendor/_sdk/include/discordpp.h ]; then
+            mv vendor/_sdk vendor/discord-sdk
+          else
+            sub="$(ls vendor/_sdk | head -1)"
+            mv "vendor/_sdk/$sub" vendor/discord-sdk
+            rmdir vendor/_sdk
+          fi
           test -f vendor/discord-sdk/include/discordpp.h
 
       # Symlink cached SDK into lib/ so Docker's COPY lib/ finds it.
