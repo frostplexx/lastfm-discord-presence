@@ -55,7 +55,8 @@ jobs:
       - name: Place SDK where Docker expects it
         run: |
           mkdir -p lib
-          ln -sfn "$PWD/vendor/discord-sdk" lib/discord_social_sdk
+          rm -rf lib/discord_social_sdk
+          cp -r vendor/discord-sdk lib/discord_social_sdk
           test -f lib/discord_social_sdk/include/discordpp.h
 
       - name: Set up Docker Buildx
