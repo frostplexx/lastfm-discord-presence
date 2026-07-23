@@ -286,7 +286,7 @@ int main() {
     auto connectWithToken =
         [&](const std::string& accessToken,
             const std::string& refreshToken) {
-            TokenStore::Save(refreshToken, tokenFile);
+            TokenStore::Save({accessToken, refreshToken}, tokenFile);
             client->UpdateToken(
                 discordpp::AuthorizationTokenType::Bearer, accessToken,
                 [client](discordpp::ClientResult r) {
@@ -341,19 +341,26 @@ int main() {
             });
     };
 
-    // Try to reuse a saved refresh token.
-    auto savedToken = TokenStore::Load(tokenFile);
-    if (savedToken.has_value()) {
+    // Try to refresh a saved refresh token (falls through to OAuth on failure)
+    std::function<void()> tryRefresh = [&]() {
+        auto savedTokens = TokenStore::Load(tokenFile);
+        if (!savedTokens.has_value() || savedTokens->refreshToken.empty()) {
+            std::cout << "[auth] no refresh token saved, starting OAuth..."
+                      << std::endl;
+            startOAuth();
+            return;
+        }
+
         std::cout << "[auth] found saved refresh token, attempting refresh..."
                   << std::endl;
         client->RefreshToken(
-            appId, savedToken.value(),
-            [&, savedToken](discordpp::ClientResult result,
-                            std::string            accessToken,
-                            std::string            refreshToken,
-                            discordpp::AuthorizationTokenType,
-                            int32_t,
-                            std::string) {
+            appId, savedTokens->refreshToken,
+            [&](discordpp::ClientResult result,
+                std::string            accessToken,
+                std::string            refreshToken,
+                discordpp::AuthorizationTokenType,
+                int32_t,
+                std::string) {
                 if (result.Successful()) {
                     std::cout << "[auth] token refreshed!" << std::endl;
                     connectWithToken(accessToken, refreshToken);
@@ -365,6 +372,30 @@ int main() {
                     startOAuth();
                 }
             });
+    };
+
+    // ── Startup: try saved access token first, then refresh, then OAuth ────
+    auto savedTokens = TokenStore::Load(tokenFile);
+    if (savedTokens.has_value() && !savedTokens->accessToken.empty()) {
+        std::cout << "[auth] found saved access token, trying it..."
+                  << std::endl;
+        client->UpdateToken(
+            discordpp::AuthorizationTokenType::Bearer,
+            savedTokens->accessToken,
+            [&](discordpp::ClientResult r) {
+                if (r.Successful()) {
+                    std::cout << "[auth] access token valid, connecting..."
+                              << std::endl;
+                    client->Connect();
+                } else {
+                    std::cout << "[auth] access token expired, "
+                                 "trying refresh..."
+                              << std::endl;
+                    tryRefresh();
+                }
+            });
+    } else if (savedTokens.has_value() && !savedTokens->refreshToken.empty()) {
+        tryRefresh();
     } else {
         std::cout << "[auth] no saved token, starting OAuth..." << std::endl;
         startOAuth();
