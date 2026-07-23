@@ -19,10 +19,23 @@ RUN apt-get update && apt-get install -y \
     libcurl4-openssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# ── Stage 1: Build ───────────────────────────────────────────────────────────
+FROM ubuntu:24.04 AS builder
+
+RUN apt-get update && apt-get install -y \
+    cmake \
+    g++ \
+    libcurl4-openssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /build
 
-# Vendored dependencies + SDK
-COPY lib/ lib/
+# Copy vendored dependencies explicitly
+COPY lib/json.hpp lib/json.hpp
+COPY lib/nlohmann/ lib/nlohmann/
+
+# Copy SDK - this will fail here if it's a symlink pointing outside the context
+COPY lib/discord_social_sdk/ lib/discord_social_sdk/
 
 # Source + CMake
 COPY CMakeLists.txt .
