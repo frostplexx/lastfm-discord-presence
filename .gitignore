@@ -1,0 +1,6 @@
+build/
+.direnv/
+docs/
+*.o
+*.o.d
+lib/discord_social_sdk
