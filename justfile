@@ -7,6 +7,7 @@ cxx       := "/nix/store/ykbj4vy7p4gzhfm59say7q4pmddv8ja7-clang-wrapper-16.0.6/b
 cc        := "/nix/store/ykbj4vy7p4gzhfm59say7q4pmddv8ja7-clang-wrapper-16.0.6/bin/clang"
 builddir  := "build"
 
+
 # Configure CMake (passes nix-store tool paths explicitly)
 configure:
     {{cmake}} -S . -B {{builddir}} -DCMAKE_BUILD_TYPE=Release \
@@ -48,15 +49,15 @@ run-demo: build sign
 
 # Build Docker image (local)
 # Docker's COPY can't follow symlinks outside the build context.
-# If SKD is a symlink into e.g. ~/Downloads, resolve it first.
+# We resolve the symlink by copying the actual files into the repo.
 docker-build:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ -L lib/discord_social_sdk ]; then
       target="$(readlink lib/discord_social_sdk)"
-      echo "resolving SDK symlink → $target"
-      rm lib/discord_social_sdk
-      cp -RL "$target" lib/discord_social_sdk
+      echo "copying SDK from $target to lib/discord_social_sdk"
+      rm -rf lib/discord_social_sdk
+      cp -R "$target" lib/discord_social_sdk
       trap 'ln -sf "$target" lib/discord_social_sdk' EXIT
     fi
     exec docker build -t lastfm-discord-presence .
