@@ -34,7 +34,7 @@ jobs:
         run: |
           set -e
           mkdir -p vendor/discord-sdk vendor/_tmp
-          curl -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
+          curl --retry 3 --retry-delay 5 -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
           unzip -q sdk.zip -d vendor/_tmp
           rm sdk.zip
           # Locate discordpp.h regardless of zip's top-level structure
