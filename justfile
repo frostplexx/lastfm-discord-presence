@@ -46,21 +46,8 @@ run-demo: build sign
     DISCORD_APP_ID="${DISCORD_APP_ID}" \
     ./lastfm-discord-presence
 
-# Expand the SDK symlink into real files (for Docker build context)
-expand-sdk:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    if [ ! -L lib/discord_social_sdk ]; then
-      echo "lib/discord_social_sdk is not a symlink — nothing to do"
-      exit 0
-    fi
-    target="$$(readlink lib/discord_social_sdk)"
-    echo "expanding symlink $$target → lib/discord_social_sdk"
-    rm lib/discord_social_sdk
-    cp -RL "$$target" lib/discord_social_sdk
-
 # Build Docker image (local)
-docker-build: expand-sdk
+docker-build:
     docker build -t lastfm-discord-presence .
 
 # Run locally via Docker (set .env or pass vars)
@@ -95,7 +82,7 @@ default:
     @echo "  rebuild     — clean + build"
     @echo "  run         — build + run (set env vars)"
     @echo "  run-demo    — build + run with env from shell vars"
-    @echo "  expand-sdk  — replace SDK symlink with real files (for Docker)"
+
     @echo "  docker-build — build Docker image locally"
     @echo "  docker-run   — run Docker image interactively"
     @echo "  docker-up    — docker compose up -d"

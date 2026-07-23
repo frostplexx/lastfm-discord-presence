@@ -39,14 +39,9 @@ Works with Discord **closed** — no local RPC/IPC dependency.
 - **Last.fm API key** — get one at [last.fm/api](https://www.last.fm/api)
 - **Discord Application** — create one at [Discord Developer Portal](https://discord.com/developers/applications)
 
-### 2. Set up the Discord Social SDK
+### 2. Discord Social SDK
 
-```sh
-# Extract the SDK into lib/ so it's at:
-# lib/discord_social_sdk/include/discordpp.h
-# lib/discord_social_sdk/lib/release/libdiscord_partner_sdk.dylib  (macOS)
-# lib/discord_social_sdk/lib/release/libdiscord_partner_sdk.so     (Linux)
-```
+The SDK is vendored at `lib/discord_social_sdk/` — everything needed for macOS, Linux, and Windows builds is already in the repo. No separate download required.
 
 ### 3. Build and run (macOS)
 
@@ -63,7 +58,6 @@ just run
 ### 4. Build and run (Docker)
 
 ```sh
-just expand-sdk     # replace SDK symlink with real files
 just docker-build
 
 # Run with env vars:
@@ -110,8 +104,6 @@ The workflow at `.github/workflows/docker.yml` builds and pushes to `ghcr.io`.
 
 | Secret             | Description                                        |
 | ------------------ | -------------------------------------------------- |
-| `DISCORD_SDK_URL`  | URL to download the Linux Discord Social SDK tarball |
-
 Push to `main` triggers the build. Images are tagged with branch name and commit SHA.
 
 ## Project structure
@@ -123,7 +115,7 @@ Push to `main` triggers the build. Images are tagged with branch name and commit
 ├── flake.nix                   # Nix dev shell (alternative dev env)
 ├── justfile                    # Task runner (build, run, sign, docker, etc.)
 ├── lib/
-│   ├── discord_social_sdk/     # → Discord Social SDK (symlink to download)
+│   ├── discord_social_sdk/     # Discord Social SDK (vendored)
 │   ├── json.hpp                # Vendored nlohmann/json single header
 │   └── nlohmann/json.hpp       # Copy for <nlohmann/json.hpp> include
 ├── src/
