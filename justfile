@@ -46,6 +46,40 @@ run-demo: build sign
     DISCORD_APP_ID="${DISCORD_APP_ID}" \
     ./lastfm-discord-presence
 
+# Expand the SDK symlink into real files (for Docker build context)
+expand-sdk:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    if [ ! -L lib/discord_social_sdk ]; then
+      echo "lib/discord_social_sdk is not a symlink — nothing to do"
+      exit 0
+    fi
+    target="$$(readlink lib/discord_social_sdk)"
+    echo "expanding symlink $$target → lib/discord_social_sdk"
+    rm lib/discord_social_sdk
+    cp -RL "$$target" lib/discord_social_sdk
+
+# Build Docker image (local)
+docker-build: expand-sdk
+    docker build -t lastfm-discord-presence .
+
+# Run locally via Docker (set .env or pass vars)
+docker-run:
+    docker run --rm -it \
+      -e LASTFM_API_KEY="${LASTFM_API_KEY}" \
+      -e LASTFM_USER="${LASTFM_USER}" \
+      -e DISCORD_APP_ID="${DISCORD_APP_ID}" \
+      -v lastfm-presence-token:/data \
+      lastfm-discord-presence
+
+# Start via docker-compose (reads .env)
+docker-up:
+    docker compose up -d
+
+# Stop docker-compose
+docker-down:
+    docker compose down
+
 # Fetch nlohmann/json single header (already vendored)
 fetch-json:
     curl -sL -o lib/json.hpp \
@@ -54,10 +88,15 @@ fetch-json:
 # Show available commands
 default:
     @echo "targets:"
-    @echo "  configure  — cmake configure (with nix clang + curl)"
-    @echo "  build      — configure + compile"
-    @echo "  sign       — ad-hoc sign dylib + binary (macOS quarantine bypass)"
-    @echo "  clean      — remove build/ and vendored json.hpp"
-    @echo "  rebuild    — clean + build"
-    @echo "  run        — build + run (set env vars)"
-    @echo "  run-demo   — build + run with env from shell vars"
+    @echo "  configure   — cmake configure (with nix clang + curl)"
+    @echo "  build       — configure + compile"
+    @echo "  sign        — ad-hoc sign dylib + binary (macOS quarantine bypass)"
+    @echo "  clean       — remove build/ and vendored json.hpp"
+    @echo "  rebuild     — clean + build"
+    @echo "  run         — build + run (set env vars)"
+    @echo "  run-demo    — build + run with env from shell vars"
+    @echo "  expand-sdk  — replace SDK symlink with real files (for Docker)"
+    @echo "  docker-build — build Docker image locally"
+    @echo "  docker-run   — run Docker image interactively"
+    @echo "  docker-up    — docker compose up -d"
+    @echo "  docker-down  — docker compose down"

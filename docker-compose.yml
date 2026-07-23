@@ -1,0 +1,18 @@
+services:
+  lastfm-presence:
+    image: ghcr.io/${GITHUB_REPOSITORY:-lastfm-discord-presence}/lastfm-discord-presence:latest
+    container_name: lastfm-presence
+    environment:
+      - LASTFM_API_KEY=${LASTFM_API_KEY:?err}
+      - LASTFM_USER=${LASTFM_USER:?err}
+      - DISCORD_APP_ID=${DISCORD_APP_ID:?err}
+      - LASTFM_POLL_INTERVAL_SEC=${LASTFM_POLL_INTERVAL_SEC:-10}
+      - LASTFM_SHOW_BUTTON=${LASTFM_SHOW_BUTTON:-1}
+      - LASTFM_SHOW_SMALL_IMAGE=${LASTFM_SHOW_SMALL_IMAGE:-1}
+      - DISCORD_TOKEN_FILE=/data/token
+    volumes:
+      - lastfm-token:/data
+    restart: unless-stopped
+
+volumes:
+  lastfm-token:
