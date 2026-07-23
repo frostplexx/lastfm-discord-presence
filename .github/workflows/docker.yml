@@ -32,7 +32,7 @@ jobs:
       - name: Download SDK (cache miss)
         if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
-          set -e
+          set -ex
           mkdir -p vendor/discord-sdk vendor/_tmp
           curl --retry 3 --retry-delay 5 -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
           unzip -q sdk.zip -d vendor/_tmp
