@@ -18,7 +18,10 @@ RUN apt-get update && apt-get install -y \
     cmake \
     g++ \
     libcurl4-openssl-dev \
-    libasound2-dev \
+    libcurl4-openssl-dev \
+    libcurl4 \
+    ca-certificates \
+    libasound2t64 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -42,7 +45,6 @@ FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y \
     libcurl4 \
     ca-certificates \
-    libasound2 \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /build/out/lastfm-discord-presence /app/
