@@ -32,29 +32,30 @@ jobs:
       - name: Download SDK (cache miss)
         if: steps.cache-sdk.outputs.cache-hit != 'true'
         run: |
-          mkdir -p vendor/_sdk
+          set -e
+          mkdir -p vendor/discord-sdk vendor/_tmp
           curl -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
-          unzip -q sdk.zip -d vendor/_sdk
+          unzip -q sdk.zip -d vendor/_tmp
           rm sdk.zip
-          # Zip may have a top-level dir (DiscordSocialSdk-1.9.17379/).
-          # Flatten: move contents up so include/ is at the top.
-          if [ -f vendor/_sdk/include/discordpp.h ]; then
-            mv vendor/_sdk vendor/discord-sdk
-          else
-            sub="$(ls vendor/_sdk | head -1)"
-            mv "vendor/_sdk/$sub" vendor/discord-sdk
-            rmdir vendor/_sdk
+          # Locate discordpp.h regardless of zip's top-level structure
+          src=$(find vendor/_tmp -name discordpp.h -print -quit 2>/dev/null)
+          if [ -z "$src" ]; then
+            echo "discordpp.h not found in zip"
+            exit 1
           fi
+          # SDK root = grandparent of the file's directory
+          #   src=.../DiscordSdk-x/include/discordpp.h → root=.../DiscordSdk-x
+          #   src=.../include/discordpp.h              → root=...
+          sdk_root=$(cd "$(dirname "$src")/.." && pwd -P)
+          mv "$sdk_root"/* vendor/discord-sdk/
+          mv "$sdk_root"/.* vendor/discord-sdk/ 2>/dev/null || true
+          rm -rf vendor/_tmp
           test -f vendor/discord-sdk/include/discordpp.h
 
-      # Symlink cached SDK into lib/ so Docker's COPY lib/ finds it.
-      # On cache miss the download step already populated vendor/discord-sdk.
-      # On cache hit, actions/cache restored it.
       - name: Place SDK where Docker expects it
         run: |
-          if [ -d vendor/discord-sdk/include ]; then
-            ln -sfn vendor/discord-sdk lib/discord_social_sdk
-          fi
+          mkdir -p lib
+          ln -sfn "$PWD/vendor/discord-sdk" lib/discord_social_sdk
           test -f lib/discord_social_sdk/include/discordpp.h
 
       - name: Set up Docker Buildx

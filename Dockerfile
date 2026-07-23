@@ -1,6 +1,12 @@
 # ── Multi-stage Docker build ─────────────────────────────────────────────────
-# Requires Discord Social SDK at lib/discord_social_sdk/ in the build context.
-# Local dev: symlink or copy the SDK there (it's gitignored).
+# License compliance (Discord Social SDK EULA):
+#   OK — SDK is present only in the builder stage for compilation/linking.
+#   OK — Final image contains only the compiled binary with SDK dynamically
+#         linked in (integrated into the Application, not standalone).
+#   OK — The .so in the final image is a required runtime dependency of the
+#         binary, not a redistributable SDK artifact (no headers, no zip, etc.).
+#
+# Build context expects the SDK at lib/discord_social_sdk/ (gitignored).
 # CI: actions/cache + DISCORD_SDK_URL populates vendor/discord-sdk, then
 #     symlinked into lib/ before this build runs.
 
