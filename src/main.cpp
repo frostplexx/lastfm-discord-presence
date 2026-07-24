@@ -148,6 +148,8 @@ int main() {
     std::atomic<bool>       ready{false};
     LastfmClient            lastfm;
     std::optional<TrackId>  lastTrack; // track we last posted to Discord
+    auto lastPollTime = std::chrono::steady_clock::now();
+    bool needsPoll = false;
 
     // ── Rich presence helpers ─────────────────────────────────────────────
     auto postPresence = [&](const Track& t) {
@@ -223,22 +225,9 @@ int main() {
     };
 
     auto clearPresence = [&]() {
-        discordpp::Activity activity;
-        // Unset everything so there's nothing to display
-        activity.SetName("");
-        activity.SetType(discordpp::ActivityTypes::Playing);
-        activity.SetDetails(std::nullopt);
-        activity.SetState(std::nullopt);
-        activity.SetStatusDisplayType(std::nullopt);
-
-        client->UpdateRichPresence(
-            activity, [](discordpp::ClientResult r) {
-                if (!r.Successful())
-                    std::cerr << "[presence] clear failed: " << r.Error()
-                              << std::endl;
-            });
-
-        std::cout << "[lastfm] nothing playing, cleared presence" << std::endl;
+        client->Disconnect();
+        ready.store(false);
+        std::cout << "[lastfm] nothing playing, disconnected" << std::endl;
     };
 
     // ── Poll loop ─────────────────────────────────────────────────────────
@@ -257,8 +246,13 @@ int main() {
             (!hasTrack || lastTrack.value() == current))
             return;
 
-        // State changed — fetch duration before posting
+        // State changed — may need to reconnect first
         if (hasTrack) {
+            if (!ready.load()) {
+                client->Connect();
+                lastTrack = current; // remember so next poll skips
+                return; // wait for Ready callback
+            }
             auto dur = lastfm.GetTrackDuration(apiKey, track->artist,
                                                track->name);
             if (dur.has_value())
@@ -282,6 +276,7 @@ int main() {
             if (status == discordpp::Client::Status::Ready) {
                 std::cout << "[sdk] connected to Discord!" << std::endl;
                 ready.store(true);
+                needsPoll = true;
             } else if (error != discordpp::Client::Error::None) {
                 std::cerr << "[sdk] error: "
                           << discordpp::Client::ErrorToString(error)
@@ -479,8 +474,6 @@ int main() {
     }
 
     // ── Main loop ─────────────────────────────────────────────────────────
-    auto lastPollTime = std::chrono::steady_clock::now();
-
     while (running.load()) {
         discordpp::RunCallbacks();
 
@@ -489,7 +482,8 @@ int main() {
             auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
                                now - lastPollTime)
                                .count();
-            if (elapsed >= pollIntervalSec) {
+            if (needsPoll || elapsed >= pollIntervalSec) {
+                needsPoll = false;
                 poll();
                 lastPollTime = now;
             }
@@ -502,7 +496,7 @@ int main() {
     std::cout << "\nshutting down..." << std::endl;
 
     {
-        client->ClearRichPresence();
+        client->Disconnect();
     }
 
     discordpp::RunCallbacks();
