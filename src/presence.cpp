@@ -16,7 +16,7 @@ void postPresence(
 {
     discordpp::Activity activity;
     activity.SetType(discordpp::ActivityTypes::Listening);
-    activity.SetName("Last.fm");
+    activity.SetName(t.name + " — " + t.artist);
     activity.SetDetails(t.name);
     activity.SetState(t.artist);
     activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Details);
