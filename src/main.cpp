@@ -1,25 +1,21 @@
 #define DISCORDPP_IMPLEMENTATION
 #include "discordpp.h"
 
+#include "auth.h"
 #include "lastfm.h"
+#include "presence.h"
 #include "store.h"
+#include "utils.h"
 
 #include <atomic>
-#include <cctype>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
 #include <iostream>
-#include <random>
-#include <sstream>
 #include <optional>
 #include <memory>
 #include <string>
 #include <thread>
-
-#include <nlohmann/json.hpp>
-
-using json = nlohmann::json;
 
 // ── Globals (signal handler needs them) ─────────────────────────────────────
 static std::atomic<bool> running{true};
@@ -27,66 +23,6 @@ static std::atomic<bool> running{true};
 void signalHandler(int) {
     running.store(false);
 }
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-static std::string expandHome(const std::string& path) {
-    if (path.size() > 1 && path[0] == '~' && path[1] == '/') {
-        const char* home = std::getenv("HOME");
-        if (home)
-            return std::string(home) + path.substr(1);
-    }
-    return path;
-}
-
-static uint64_t parseAppId(const std::string& s) {
-    return static_cast<uint64_t>(std::stoull(s));
-}
-
-static std::string artistUrlFromName(const std::string& artist) {
-    std::ostringstream s;
-    for (unsigned char c : artist) {
-        if (c <= 32 || c == 127 || c == '/' || c == '?' || c == '#' ||
-            c == '&' || c == '=' || c == '%') {
-            static const char hex[] = "0123456789ABCDEF";
-            s << '%' << hex[c >> 4] << hex[c & 0xf];
-        } else {
-            s << c;
-        }
-    }
-    return "https://www.last.fm/music/" + s.str();
-}
-
-static std::string albumUrlFromNames(const std::string& artist,
-                                     const std::string& album) {
-    if (album.empty()) return {};
-    std::ostringstream s;
-    auto append = [&](const std::string& raw) {
-        for (unsigned char c : raw) {
-            if (c <= 32 || c == 127 || c == '/' || c == '?' || c == '#' ||
-                c == '&' || c == '=' || c == '%') {
-                static const char hex[] = "0123456789ABCDEF";
-                s << '%' << hex[c >> 4] << hex[c & 0xf];
-            } else {
-                s << c;
-            }
-        }
-    };
-    append(artist);
-    s << '/';
-    append(album);
-    return "https://www.last.fm/music/" + s.str();
-}
-
-// ── Track identity (for change detection) ────────────────────────────────────
-struct TrackId {
-    std::string artist;
-    std::string name;
-
-    bool operator==(const TrackId& o) const {
-        return artist == o.artist && name == o.name;
-    }
-    bool operator!=(const TrackId& o) const { return !(*this == o); }
-};
 
 // ── Main ────────────────────────────────────────────────────────────────────
 int main() {
@@ -118,7 +54,7 @@ int main() {
         tokenFile = v;
     tokenFile = expandHome(tokenFile);
 
-    bool shareUsername = true; // show "View on Last.fm" button
+    bool shareUsername = true;
     if (const char* v = std::getenv("LASTFM_SHOW_BUTTON"))
         shareUsername = std::string(v) != "0";
     bool showSmallImage = true;
@@ -153,143 +89,13 @@ int main() {
     // ── State ─────────────────────────────────────────────────────────────
     std::atomic<bool>       ready{false};
     LastfmClient            lastfm;
-    std::optional<TrackId>  lastTrack; // track we last posted to Discord
-    std::optional<uint64_t> trackStart; // timestamp when track first detected
-    bool pendingPost = false;  // track detected while disconnected, post when ready
+    std::optional<TrackId>  lastTrack;
+    std::optional<uint64_t> trackStart;
+    bool pendingPost = false;
     bool needsPoll = false;
     bool disconnectPending = false;
     auto disconnectTimer = std::chrono::steady_clock::time_point{};
     auto lastPollTime = std::chrono::steady_clock::now();
-
-    // ── Rich presence helpers ─────────────────────────────────────────────
-    auto postPresence = [&](const Track& t) {
-        discordpp::Activity activity;
-        activity.SetType(discordpp::ActivityTypes::Listening);
-        activity.SetName("Last.fm");
-        activity.SetDetails(t.name);       // line 2: track name
-        activity.SetState(t.artist);       // line 3: artist name
-        activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Details);
-
-        // Clickable links
-        if (!t.trackUrl.empty())
-            activity.SetDetailsUrl(t.trackUrl);
-        activity.SetStateUrl(artistUrlFromName(t.artist));
-
-        // Album art as large image
-        discordpp::ActivityAssets assets;
-        if (!t.imageUrl.empty()) {
-            assets.SetLargeImage(t.imageUrl);
-            assets.SetLargeText(t.album.empty() ? t.artist : t.album);
-            if (!t.album.empty())
-                assets.SetLargeUrl(albumUrlFromNames(t.artist, t.album));
-        } else {
-            // No album art — use a last.fm logo URL as fallback
-            assets.SetLargeImage(
-                "https://www.last.fm/static/images/lastfm_avatar_twitter.png");
-            assets.SetLargeText("Last.fm");
-        }
-
-        // Small image: Last.fm logo overlay (optional)
-        if (showSmallImage) {
-            assets.SetSmallImage(
-                "https://www.last.fm/static/images/lastfm_avatar_twitter.png");
-            assets.SetSmallText("Last.fm");
-            assets.SetSmallUrl("https://www.last.fm/user/" + lastfmUser);
-        }
-
-        activity.SetAssets(assets);
-
-        // Timestamps: start recorded on first detection, reused on reconnect
-        uint64_t now = time(nullptr);
-        if (!trackStart.has_value())
-            trackStart = now;
-
-        discordpp::ActivityTimestamps ts;
-        ts.SetStart(*trackStart);
-        if (t.durationSec > 0)
-            ts.SetEnd(*trackStart + t.durationSec);
-        activity.SetTimestamps(ts);
-
-        // "View on Last.fm" button
-        if (shareUsername) {
-            discordpp::ActivityButton btn;
-            btn.SetLabel("View on Last.fm");
-            btn.SetUrl(artistUrlFromName(t.artist) + "/_/" +
-                       t.name); // direct track URL as fallback
-            // Prefer the actual track URL if we have it
-            if (!t.trackUrl.empty())
-                btn.SetUrl(t.trackUrl);
-            activity.AddButton(btn);
-        }
-
-        client->UpdateRichPresence(
-            activity, [](discordpp::ClientResult r) {
-                if (!r.Successful())
-                    std::cerr << "[presence] update failed: " << r.Error()
-                              << std::endl;
-            });
-
-        std::cout << "[lastfm] \u266B " << t.name << " \u2014 " << t.artist;
-        if (t.durationSec > 0)
-            std::cout << " (" << t.durationSec / 60 << ":"
-                      << (t.durationSec % 60 < 10 ? "0" : "")
-                      << t.durationSec % 60 << ")";
-        std::cout << std::endl;
-    };
-
-    auto clearPresence = [&]() {
-        disconnectPending = true;
-        disconnectTimer = std::chrono::steady_clock::now()
-                        + std::chrono::seconds(disconnectDelaySec);
-        std::cout << "[lastfm] nothing playing, will disconnect in "
-                  << disconnectDelaySec << "s" << std::endl;
-    };
-
-    // ── Poll loop ─────────────────────────────────────────────────────────
-    auto poll = [&]() {
-        auto track = lastfm.NowPlaying(apiKey, lastfmUser);
-        TrackId current;
-        bool hasTrack = false;
-
-        if (track.has_value()) {
-            current  = {track->artist, track->name};
-            hasTrack = true;
-        }
-
-        // Check state vs last time we acted (posted or cleared)
-        bool changed = (lastTrack.has_value() != hasTrack) ||
-                       (hasTrack && lastTrack.value() != current);
-
-        if (hasTrack) {
-            disconnectPending = false; // new track, cancel pending disconnect
-            if (!ready.load()) {
-                if (changed) {
-                    client->Connect();
-                    lastTrack = current;
-                    pendingPost = true;
-                    trackStart = time(nullptr); // capture at detection
-                }
-                return; // wait for Ready callback
-            }
-            // Post if track changed OR we reconnected and have a pending post
-            if (!changed && !pendingPost)
-                return;
-            pendingPost = false;
-            auto dur = lastfm.GetTrackDuration(apiKey, track->artist,
-                                               track->name);
-            if (dur.has_value())
-                track->durationSec = *dur;
-            // trackStart set at detection point above. For initial post
-            // (already connected), postPresence captures it inline.
-            postPresence(track.value());
-            lastTrack = current;
-        } else {
-            if (!changed)
-                return;
-            clearPresence();
-            lastTrack = std::nullopt;
-        }
-    };
 
     // ── Status callback ───────────────────────────────────────────────────
     client->SetStatusChangedCallback(
@@ -302,7 +108,7 @@ int main() {
             if (status == discordpp::Client::Status::Ready) {
                 std::cout << "[sdk] connected to Discord!" << std::endl;
                 ready.store(true);
-        needsPoll = true;
+                needsPoll = true;
             } else if (error != discordpp::Client::Error::None) {
                 std::cerr << "[sdk] error: "
                           << discordpp::Client::ErrorToString(error)
@@ -310,166 +116,20 @@ int main() {
             }
         });
 
-    // ── Auth helpers ──────────────────────────────────────────────────────
-    auto connectWithToken =
+    // ── Auth callback wiring ──────────────────────────────────────────────
+    // These are captured-by-reference in the lambdas that auth functions need.
+    auto doConnectWithToken =
         [&](const std::string& accessToken,
             const std::string& refreshToken) {
-            TokenStore::Save({accessToken, refreshToken}, tokenFile);
-            client->UpdateToken(
-                discordpp::AuthorizationTokenType::Bearer, accessToken,
-                [client](discordpp::ClientResult r) {
-                    if (r.Successful()) {
-                        std::cout << "[auth] token updated, connecting..."
-                                  << std::endl;
-                        client->Connect();
-                    } else {
-                        std::cerr << "[auth] UpdateToken failed: "
-                                  << r.Error() << std::endl;
-                    }
-                });
+            connectWithToken(client, tokenFile, accessToken, refreshToken);
         };
 
-    // ── URL-encode for form data ────────────────────────────────────────
-    auto urlEncode = [](const std::string& raw) -> std::string {
-        std::ostringstream s;
-        for (unsigned char c : raw) {
-            if (std::isalnum(c) || c == '-' || c == '_' || c == '.' || c == '~')
-                s << c;
-            else if (c == ' ')
-                s << '+';
-            else
-                s << '%' << std::hex << std::uppercase << (int)c;
-        }
-        return s.str();
+    std::function<void()> doStartOAuth = [&]() {
+        startOAuth(client, lastfm, appId, doConnectWithToken, running);
     };
 
-    // ── Device auth flow (works from headless containers) ────────────────
-    std::function<void()> startOAuth = [&, client]() {
-        std::string scopes = discordpp::Client::GetDefaultPresenceScopes();
-
-        // Step 1: Request device + user code from Discord
-        std::cout << "[auth] requesting device code..." << std::endl;
-        std::cout << "[auth] scopes=\"" << scopes << "\" appId=" << appId << std::endl;
-
-        std::string deviceData =
-            "client_id=" + std::to_string(appId) +
-            "&scope=" + urlEncode(scopes);
-
-        auto deviceResp = lastfm.HttpPost(
-            "https://discord.com/api/oauth2/device/authorize", deviceData);
-        if (!deviceResp) {
-            std::cerr << "[auth] device request failed" << std::endl;
-            return;
-        }
-
-        std::cout << "[auth] device response: " << deviceResp->substr(0, 512) << std::endl;
-
-        json deviceJson;
-        try { deviceJson = json::parse(*deviceResp); }
-        catch (...) {
-            std::cerr << "[auth] failed to parse device response: "
-                      << deviceResp->substr(0, 512) << std::endl;
-            return;
-        }
-
-        std::string deviceCode = deviceJson.value("device_code", "");
-        std::string userCode = deviceJson.value("user_code", "");
-        std::string verifyUrl = deviceJson.value("verification_uri_complete", "");
-        int expiresIn = deviceJson.value("expires_in", 300);
-        int interval = deviceJson.value("interval", 5);
-
-        if (deviceCode.empty()) {
-            std::string errMsg = deviceJson.value("error", "");
-            std::string errDesc = deviceJson.value("error_description", "");
-            std::cerr << "[auth] device auth error";
-            if (!errMsg.empty()) std::cerr << ": " << errMsg;
-            if (!errDesc.empty()) std::cerr << " (" << errDesc << ")";
-            std::cerr << std::endl;
-            return;
-        }
-
-        std::cout << "\n======================================================\n"
-                  << "  Authorize on any device:\n"
-                  << "  URL:  " << verifyUrl << "\n"
-                  << "  Code: " << userCode << "\n"
-                  << "======================================================\n"
-                  << std::endl;
-
-        // Step 2: Poll for access token
-        std::string tokenData =
-            "client_id=" + std::to_string(appId) +
-            "&device_code=" + urlEncode(deviceCode) +
-            "&grant_type=urn:ietf:params:oauth:grant-type:device_code";
-
-        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(expiresIn);
-
-        while (std::chrono::steady_clock::now() < deadline && running.load()) {
-            std::this_thread::sleep_for(std::chrono::seconds(interval));
-
-            auto tokenResp = lastfm.HttpPost(
-                "https://discord.com/api/oauth2/token", tokenData);
-            if (!tokenResp) continue;
-
-            json tokenJson;
-            try { tokenJson = json::parse(*tokenResp); } catch (...) { continue; }
-
-            if (tokenJson.contains("access_token")) {
-                std::string accessToken = tokenJson["access_token"];
-                std::string refreshToken = tokenJson.value("refresh_token", "");
-                std::cout << "[auth] got access token via device auth!" << std::endl;
-                connectWithToken(accessToken, refreshToken);
-                return;
-            }
-
-            std::string err = tokenJson.value("error", "");
-            if (err == "access_denied") {
-                std::cerr << "[auth] authorization denied" << std::endl;
-                return;
-            }
-            if (err == "expired_token") {
-                std::cerr << "[auth] device code expired, restart required" << std::endl;
-                return;
-            }
-            if (err == "slow_down") {
-                interval += 5;
-                std::cout << "[auth] server asked to slow down, new interval=" << interval << "s" << std::endl;
-            }
-        }
-
-        std::cerr << "[auth] device auth timed out after " << expiresIn << "s" << std::endl;
-    };
-
-    // Try to refresh a saved refresh token (falls through to OAuth on failure)
-    std::function<void()> tryRefresh = [&]() {
-        auto savedTokens = TokenStore::Load(tokenFile);
-        if (!savedTokens.has_value() || savedTokens->refreshToken.empty()) {
-            std::cout << "[auth] no refresh token saved, starting OAuth..."
-                      << std::endl;
-            startOAuth();
-            return;
-        }
-
-        std::cout << "[auth] found saved refresh token, attempting refresh..."
-                  << std::endl;
-        client->RefreshToken(
-            appId, savedTokens->refreshToken,
-            [&](discordpp::ClientResult result,
-                std::string            accessToken,
-                std::string            refreshToken,
-                discordpp::AuthorizationTokenType,
-                int32_t,
-                std::string) {
-                if (result.Successful()) {
-                    std::cout << "[auth] token refreshed!" << std::endl;
-                    connectWithToken(accessToken, refreshToken);
-                } else {
-                    std::cerr << "[auth] refresh failed ("
-                              << result.Error()
-                              << "), starting fresh OAuth..." << std::endl;
-                    TokenStore::Clear(tokenFile);
-                    startOAuth();
-                }
-            });
+    auto doTryRefresh = [&]() {
+        tryRefresh(client, appId, tokenFile, doStartOAuth, doConnectWithToken);
     };
 
     // ── Startup: try saved access token first, then refresh, then OAuth ────
@@ -489,14 +149,14 @@ int main() {
                     std::cout << "[auth] access token expired, "
                                  "trying refresh..."
                               << std::endl;
-                    tryRefresh();
+                    doTryRefresh();
                 }
             });
     } else if (savedTokens.has_value() && !savedTokens->refreshToken.empty()) {
-        tryRefresh();
+        doTryRefresh();
     } else {
         std::cout << "[auth] no saved token, starting OAuth..." << std::endl;
-        startOAuth();
+        doStartOAuth();
     }
 
     // ── Main loop ─────────────────────────────────────────────────────────
@@ -509,7 +169,10 @@ int main() {
                            .count();
         if (needsPoll || elapsed >= pollIntervalSec) {
             needsPoll = false;
-            poll();
+            poll(lastfm, apiKey, lastfmUser, client,
+                 lastTrack, trackStart, pendingPost,
+                 disconnectPending, disconnectTimer, ready,
+                 disconnectDelaySec, shareUsername, showSmallImage);
             lastPollTime = now;
         }
 
@@ -527,11 +190,7 @@ int main() {
 
     // ── Cleanup ───────────────────────────────────────────────────────────
     std::cout << "\nshutting down..." << std::endl;
-
-    {
-        client->Disconnect();
-    }
-
+    client->Disconnect();
     discordpp::RunCallbacks();
     std::cout << "bye." << std::endl;
     return 0;

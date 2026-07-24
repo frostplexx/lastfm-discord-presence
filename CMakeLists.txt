@@ -15,6 +15,9 @@ add_executable(lastfm-discord-presence
   src/main.cpp
   src/lastfm.cpp
   src/store.cpp
+  src/utils.cpp
+  src/auth.cpp
+  src/presence.cpp
 )
 
 target_include_directories(lastfm-discord-presence PRIVATE
