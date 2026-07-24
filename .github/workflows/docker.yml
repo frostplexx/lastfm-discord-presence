@@ -24,7 +24,7 @@ jobs:
       # Cache persists across runs — re-fetch only on version bump.
       - name: Cache Discord SDK
         id: cache-sdk
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: vendor/discord-sdk
           key: discord-sdk-${{ env.SDK_VERSION }}
