@@ -22,6 +22,7 @@ RUN apt-get update && apt-get install -y \
     libcurl4 \
     ca-certificates \
     libasound2t64 \
+    libpulse0 \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /build
@@ -51,6 +52,7 @@ RUN apt-get update && apt-get install -y \
     libcurl4 \
     libatomic1 \
     libasound2t64 \
+    libpulse0 \ 
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
