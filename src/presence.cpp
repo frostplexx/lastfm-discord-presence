@@ -141,6 +141,8 @@ void poll(
         // Post if track changed OR we reconnected and have a pending post
         if (!changed && !pendingPost)
             return;
+        if (changed)
+            trackStart.reset(); // reset progress bar for new track
         pendingPost = false;
         auto dur = lastfm.GetTrackDuration(apiKey, track->artist,
                                            track->name);
