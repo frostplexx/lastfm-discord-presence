@@ -28,6 +28,10 @@ public:
                                         const std::string& artist,
                                         const std::string& track);
 
+    // HTTP POST with form-urlencoded body. Reuses the internal curl handle.
+    std::optional<std::string> HttpPost(const std::string& url,
+                                        const std::string& formData);
+
 private:
     // Non-copyable
     LastfmClient(const LastfmClient&) = delete;

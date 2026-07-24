@@ -58,6 +58,38 @@ std::optional<std::string> LastfmClient::HttpGet(const std::string& url) {
     return response;
 }
 
+// ── Shared HTTP POST (form-urlencoded) ──────────────────────────────────────
+std::optional<std::string> LastfmClient::HttpPost(const std::string& url,
+                                                   const std::string& formData) {
+    if (!curl_) {
+        std::cerr << "[http] curl not initialized" << std::endl;
+        return std::nullopt;
+    }
+
+    std::string response;
+    curl_easy_setopt(curl_, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(curl_, CURLOPT_POSTFIELDS, formData.c_str());
+    curl_easy_setopt(curl_, CURLOPT_WRITEFUNCTION, WriteCb);
+    curl_easy_setopt(curl_, CURLOPT_WRITEDATA, &response);
+    curl_easy_setopt(curl_, CURLOPT_TIMEOUT, 15L);
+
+    CURLcode res = curl_easy_perform(curl_);
+    // Reset to GET for subsequent calls
+    curl_easy_setopt(curl_, CURLOPT_HTTPGET, 1L);
+
+    if (res != CURLE_OK) {
+        std::cerr << "[http] POST error: " << curl_easy_strerror(res)
+                  << std::endl;
+        return std::nullopt;
+    }
+
+    long httpCode = 0;
+    curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &httpCode);
+    // Device auth endpoint returns 200 even for non-200 status codes in body
+    // so we return the body regardless and let the caller check for errors.
+    return response;
+}
+
 // ── Helper: construct last.fm artist URL from artist name ───────────────────
 static std::string artistUrl(const std::string& artist) {
     std::ostringstream s;
