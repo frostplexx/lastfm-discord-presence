@@ -224,12 +224,12 @@ int main() {
 
     auto clearPresence = [&]() {
         discordpp::Activity activity;
-        activity.SetType(discordpp::ActivityTypes::Listening);
-        activity.SetName("Last.fm");
-        // Must be 2–128 chars per Discord API
-        activity.SetDetails("--");
-        activity.SetState("--");
-        activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Name);
+        // Unset everything so there's nothing to display
+        activity.SetName("");
+        activity.SetType(discordpp::ActivityTypes::Playing);
+        activity.SetDetails(std::nullopt);
+        activity.SetState(std::nullopt);
+        activity.SetStatusDisplayType(std::nullopt);
 
         client->UpdateRichPresence(
             activity, [](discordpp::ClientResult r) {
@@ -502,11 +502,7 @@ int main() {
     std::cout << "\nshutting down..." << std::endl;
 
     {
-        discordpp::Activity activity;
-        activity.SetType(discordpp::ActivityTypes::Listening);
-        activity.SetDetails("--");
-        activity.SetState("--");
-        client->UpdateRichPresence(activity, [](auto) {});
+        client->ClearRichPresence();
     }
 
     discordpp::RunCallbacks();
