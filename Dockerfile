@@ -41,8 +41,7 @@ COPY src/ src/
 RUN cmake -S . -B out -DCMAKE_BUILD_TYPE=Release && \
     cmake --build out
 
-# Dependency check — fails build loudly if anything's missing,
-# instead of failing silently at runtime months later.
+# Dependency check 
 RUN ldd out/lastfm-discord-presence
 RUN ldd out/libdiscord_partner_sdk.so
 
