@@ -148,6 +148,7 @@ int main() {
     std::atomic<bool>       ready{false};
     LastfmClient            lastfm;
     std::optional<TrackId>  lastTrack; // track we last posted to Discord
+    std::optional<uint64_t> trackStart; // timestamp when track first detected
     bool pendingPost = false;  // track detected while disconnected, post when ready
     bool needsPoll = false;
     auto lastPollTime = std::chrono::steady_clock::now();
@@ -190,12 +191,15 @@ int main() {
 
         activity.SetAssets(assets);
 
-        // Timestamps: both start + end for progress bar when we have duration
+        // Timestamps: start recorded on first detection, reused on reconnect
         uint64_t now = time(nullptr);
+        if (!trackStart.has_value())
+            trackStart = now;
+
         discordpp::ActivityTimestamps ts;
-        ts.SetStart(now);
+        ts.SetStart(*trackStart);
         if (t.durationSec > 0)
-            ts.SetEnd(now + t.durationSec);
+            ts.SetEnd(*trackStart + t.durationSec);
         activity.SetTimestamps(ts);
 
         // "View on Last.fm" button
@@ -263,6 +267,7 @@ int main() {
                                                track->name);
             if (dur.has_value())
                 track->durationSec = *dur;
+            trackStart.reset(); // reset for new track
             postPresence(track.value());
             lastTrack = current;
         } else {
