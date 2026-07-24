@@ -256,6 +256,7 @@ int main() {
                     client->Connect();
                     lastTrack = current;
                     pendingPost = true;
+                    trackStart = time(nullptr); // capture at detection
                 }
                 return; // wait for Ready callback
             }
@@ -267,7 +268,8 @@ int main() {
                                                track->name);
             if (dur.has_value())
                 track->durationSec = *dur;
-            trackStart.reset(); // reset for new track
+            // trackStart set at detection point above. For initial post
+            // (already connected), postPresence captures it inline.
             postPresence(track.value());
             lastTrack = current;
         } else {
