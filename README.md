@@ -2,8 +2,6 @@
 
 C++20 daemon that polls [Last.fm](https://www.last.fm) for currently scrobbling tracks and sets them as Discord Rich Presence via the [Discord Social SDK](https://discord.com/developers/docs/social-sdk/overview) authenticated (server-connected) path.
 
-Works with Discord **closed** — no local RPC/IPC dependency.
-
 ## Features
 
 - **Listening status** — shows your currently playing track as a "Listening to Last.fm" presence
@@ -14,19 +12,6 @@ Works with Discord **closed** — no local RPC/IPC dependency.
 - **"View on Last.fm" button** — opens the track on Last.fm (toggleable via `LASTFM_SHOW_BUTTON=0`)
 - **OAuth2 token persistence** — saves both access and refresh tokens across restarts
 
-## How it looks
-
-```
-┌─────────────────────────────────────────────┐
-│ 🎧 Listening to Last.fm                     │
-│                                              │
-│ 🖼️ SPINEHAMMER — Chainsword                 │
-│    ━━━━━━━━━━━━━━━━━━━━━━━━━ 1:32 / 3:30    │
-│                                              │
-│ [View on Last.fm]                            │
-└─────────────────────────────────────────────┘
-```
-
 ## 🐳 Docker Deployment
 
 ### Prerequisites
@@ -34,6 +19,12 @@ Works with Discord **closed** — no local RPC/IPC dependency.
 - **Docker** (or **Podman** with docker-compose compatibility)
 - **Last.fm API key** — get one at [last.fm/api](https://www.last.fm/api)
 - **Discord Application** — create one at [Discord Developer Portal](https://discord.com/developers/applications)
+
+### Discord Developer Portal setup
+
+1. Go to [Discord Developer Portal](https://discord.com/developers/applications) → your app
+2. **OAuth2**: toggle **"Public Client"** ON (required for the SDK's token exchange)
+4. **Application ID**: Copy the Application ID found in the OAuth2 section
 
 ### docker-compose (recommended)
 
@@ -57,26 +48,23 @@ docker run --rm -it \
   ghcr.io/frostplexx/lastfm-discord-presence:main
 ```
 
-### GitHub Container Registry
+### Available Environment variables
 
-Images are built via GitHub Actions on every push to `main` and published to `ghcr.io`:
+| Variable                   | Required | Default                    | Description                              |
+| -------------------------- | -------- | -------------------------- | ---------------------------------------- |
+| `LASTFM_API_KEY`           | yes      | —                          | Last.fm API key                          |
+| `LASTFM_USER`              | yes      | —                          | Last.fm username to poll                 |
+| `DISCORD_APP_ID`           | yes      | —                          | Discord Application ID                   |
+| `LASTFM_POLL_INTERVAL_SEC` | no       | `10`                       | How often to poll Last.fm (seconds)      |
+| `LASTFM_SHOW_BUTTON`       | no       | `1`                        | Show "View on Last.fm" button            |
+| `LASTFM_SHOW_SMALL_IMAGE`  | no       | `1`                        | Show Last.fm logo as small image overlay |
+| `DISCORD_TOKEN_FILE`       | no       | `~/.lastfm-discord-token`  | Path to saved OAuth token file           |
 
-```
-ghcr.io/frostplexx/lastfm-discord-presence:main
-ghcr.io/frostplexx/lastfm-discord-presence:<commit-sha>
-```
-
-**Required GitHub secret:**
-
-| Secret             | Description                                               |
-| ------------------ | --------------------------------------------------------- |
-| `DISCORD_SDK_URL`  | Signed GCS URL for Discord Social SDK (from Developer Portal) |
-
-The SDK URL expires in ~1hr but is cached via `actions/cache` — re-fetched only when the version key in `.github/workflows/docker.yml` is bumped.
 
 ### First-time auth
 
-On first run the daemon prints a URL + code. Open it on any device to authorize Discord → token is saved to the persistent volume. Subsequent runs reuse the stored token.
+On first run the daemon prints a URL + code. Open it on any device to authorize Discord → token is saved to the
+persistent volume. Subsequent runs reuse the stored token.
 
 ## 🔧 Local Development
 
@@ -130,24 +118,6 @@ just docker-build
 > with real files so Docker can include them in the build context.
 > The symlink is restored when the build finishes.
 
-## Environment variables
-
-| Variable                   | Required | Default                    | Description                              |
-| -------------------------- | -------- | -------------------------- | ---------------------------------------- |
-| `LASTFM_API_KEY`           | yes      | —                          | Last.fm API key                          |
-| `LASTFM_USER`              | yes      | —                          | Last.fm username to poll                 |
-| `DISCORD_APP_ID`           | yes      | —                          | Discord Application ID                   |
-| `LASTFM_POLL_INTERVAL_SEC` | no       | `10`                       | How often to poll Last.fm (seconds)      |
-| `LASTFM_SHOW_BUTTON`       | no       | `1`                        | Show "View on Last.fm" button            |
-| `LASTFM_SHOW_SMALL_IMAGE`  | no       | `1`                        | Show Last.fm logo as small image overlay |
-| `DISCORD_TOKEN_FILE`       | no       | `~/.lastfm-discord-token`  | Path to saved OAuth token file           |
-
-## Discord Developer Portal setup
-
-1. Go to [Discord Developer Portal](https://discord.com/developers/applications) → your app
-2. **OAuth2** → toggle **"Public Client"** ON (required for the SDK's token exchange)
-3. **Rich Presence** → enable Rich Presence
-4. **Rich Presence → Art Assets** → optionally upload assets (not required if using external URLs for album art)
 
 ## Project structure
 
