@@ -27,11 +27,62 @@ Works with Discord **closed** — no local RPC/IPC dependency.
 └─────────────────────────────────────────────┘
 ```
 
-## Quick start
+## 🐳 Docker Deployment
 
-### 1. Prerequisites
+### Prerequisites
 
-- **macOS** (for native build) or **Docker** (for Linux/macOS)
+- **Docker** (or **Podman** with docker-compose compatibility)
+- **Last.fm API key** — get one at [last.fm/api](https://www.last.fm/api)
+- **Discord Application** — create one at [Discord Developer Portal](https://discord.com/developers/applications)
+
+### docker-compose (recommended)
+
+```sh
+cp .env.example .env
+# Edit .env with your keys:
+#   LASTFM_API_KEY=xxx
+#   LASTFM_USER=xxx
+#   DISCORD_APP_ID=xxx
+docker compose up -d
+```
+
+### docker run
+
+```sh
+docker run --rm -it \
+  -e LASTFM_API_KEY=xxx \
+  -e LASTFM_USER=xxx \
+  -e DISCORD_APP_ID=xxx \
+  -v lastfm-presence-token:/data \
+  ghcr.io/frostplexx/lastfm-discord-presence:main
+```
+
+### GitHub Container Registry
+
+Images are built via GitHub Actions on every push to `main` and published to `ghcr.io`:
+
+```
+ghcr.io/frostplexx/lastfm-discord-presence:main
+ghcr.io/frostplexx/lastfm-discord-presence:<commit-sha>
+```
+
+**Required GitHub secret:**
+
+| Secret             | Description                                               |
+| ------------------ | --------------------------------------------------------- |
+| `DISCORD_SDK_URL`  | Signed GCS URL for Discord Social SDK (from Developer Portal) |
+
+The SDK URL expires in ~1hr but is cached via `actions/cache` — re-fetched only when the version key in `.github/workflows/docker.yml` is bumped.
+
+### First-time auth
+
+On first run the daemon prints a URL + code. Open it on any device to authorize Discord → token is saved to the persistent volume. Subsequent runs reuse the stored token.
+
+## 🔧 Local Development
+
+### Prerequisites
+
+- **macOS** (or Linux)
 - **C++20 compiler** (Clang 16+ or GCC 13+)
 - **CMake** 3.16+
 - **libcurl** (dev headers for build, runtime lib for execution)
@@ -39,15 +90,29 @@ Works with Discord **closed** — no local RPC/IPC dependency.
 - **Last.fm API key** — get one at [last.fm/api](https://www.last.fm/api)
 - **Discord Application** — create one at [Discord Developer Portal](https://discord.com/developers/applications)
 
-### 2. Discord Social SDK
+### Discord Social SDK
 
-The SDK is vendored at `lib/discord_social_sdk/` — everything needed for macOS, Linux, and Windows builds is already in the repo. No separate download required.
+Place the SDK at `lib/discord_social_sdk/`. The include headers and platform libraries are expected under:
 
-### 3. Build and run (macOS)
+```
+lib/discord_social_sdk/
+├── include/
+│   ├── cdiscord.h
+│   └── discordpp.h
+├── lib/
+│   ├── x86_64-linux/
+│   ├── x86_64-darwin/
+│   └── arm64-darwin/
+```
+
+The SDK is gitignored — you must acquire it from Discord. The GitHub Actions workflow fetches it automatically via `DISCORD_SDK_URL`.
+
+### Build and run (macOS)
 
 ```sh
 just build
 just sign              # ad-hoc sign dylib + binary (required once on macOS)
+
 LASTFM_API_KEY=xxx LASTFM_USER=xxx DISCORD_APP_ID=xxx ./build/lastfm-discord-presence
 
 # Or use the just run target after setting env vars:
@@ -55,31 +120,15 @@ export LASTFM_API_KEY=xxx LASTFM_USER=xxx DISCORD_APP_ID=xxx
 just run
 ```
 
-### 4. Build and run (Docker)
+### Build Docker image locally
 
 ```sh
-just docker-build   # resolves SDK symlink automatically
-
-# Run with env vars:
-docker run --rm -it \
-  -e LASTFM_API_KEY=xxx \
-  -e LASTFM_USER=xxx \
-  -e DISCORD_APP_ID=xxx \
-  -v lastfm-presence-token:/data \
-  lastfm-discord-presence
+just docker-build
 ```
 
 > `just docker-build` temporarily replaces the symlink at `lib/discord_social_sdk`
 > with real files so Docker can include them in the build context.
 > The symlink is restored when the build finishes.
-
-### 5. Deploy with docker-compose
-
-```sh
-cp .env.example .env
-# Edit .env with your keys
-docker compose up -d
-```
 
 ## Environment variables
 
@@ -97,23 +146,8 @@ docker compose up -d
 
 1. Go to [Discord Developer Portal](https://discord.com/developers/applications) → your app
 2. **OAuth2** → toggle **"Public Client"** ON (required for the SDK's token exchange)
-3. **OAuth2 → Redirects** → add `http://127.0.0.1/callback`
+3. **Rich Presence** → enable Rich Presence
 4. **Rich Presence → Art Assets** → optionally upload assets (not required if using external URLs for album art)
-
-## GitHub Actions CI / GitHub Container Registry
-
-The workflow at `.github/workflows/docker.yml` builds and pushes to `ghcr.io`.
-
-**Required secret:**
-
-| Secret             | Description                                               |
-| ------------------ | --------------------------------------------------------- |
-| `DISCORD_SDK_URL`  | Signed GCS URL for Discord Social SDK (from Developer Portal) |
-
-The URL expires in ~1hr, but the SDK is cached via `actions/cache` —
-re-fetched only when the version key in the workflow is bumped.
-
-Push to `main` triggers the build. Images are tagged with branch name and commit SHA.
 
 ## Project structure
 
