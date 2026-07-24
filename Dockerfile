@@ -45,6 +45,7 @@ FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y \
     libcurl4 \
     libatomic1 \
+    libasound2t64 \
     ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
