@@ -99,6 +99,7 @@ int main() {
         std::cerr << "Usage: LASTFM_API_KEY=<key> LASTFM_USER=<user> "
                      "DISCORD_APP_ID=<id>\n"
                      "Optional: LASTFM_POLL_INTERVAL_SEC=<sec> (default 10)\n"
+                     "          LASTFM_DISCONNECT_DELAY_SEC=<sec> (default 30)\n"
                      "          DISCORD_TOKEN_FILE=<path> "
                      "(default ~/.lastfm-discord-token)\n";
         return 1;
@@ -124,6 +125,10 @@ int main() {
     if (const char* v = std::getenv("LASTFM_SHOW_SMALL_IMAGE"))
         showSmallImage = std::string(v) != "0";
 
+    int disconnectDelaySec = 30;
+    if (const char* v = std::getenv("LASTFM_DISCONNECT_DELAY_SEC"))
+        disconnectDelaySec = std::max(1, std::atoi(v));
+
     // ── Signal handlers ───────────────────────────────────────────────────
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
@@ -131,6 +136,7 @@ int main() {
     std::cout << "=== lastfm-discord-presence ===\n"
               << "  user:       " << lastfmUser << "\n"
               << "  poll every: " << pollIntervalSec << "s\n"
+              << "  disconnect: " << disconnectDelaySec << "s\n"
               << "  token:      " << tokenFile << "\n"
               << std::endl;
 
@@ -151,6 +157,8 @@ int main() {
     std::optional<uint64_t> trackStart; // timestamp when track first detected
     bool pendingPost = false;  // track detected while disconnected, post when ready
     bool needsPoll = false;
+    bool disconnectPending = false;
+    auto disconnectTimer = std::chrono::steady_clock::time_point{};
     auto lastPollTime = std::chrono::steady_clock::now();
 
     // ── Rich presence helpers ─────────────────────────────────────────────
@@ -230,9 +238,11 @@ int main() {
     };
 
     auto clearPresence = [&]() {
-        client->Disconnect();
-        ready.store(false);
-        std::cout << "[lastfm] nothing playing, disconnected" << std::endl;
+        disconnectPending = true;
+        disconnectTimer = std::chrono::steady_clock::now()
+                        + std::chrono::seconds(disconnectDelaySec);
+        std::cout << "[lastfm] nothing playing, will disconnect in "
+                  << disconnectDelaySec << "s" << std::endl;
     };
 
     // ── Poll loop ─────────────────────────────────────────────────────────
@@ -251,6 +261,7 @@ int main() {
                        (hasTrack && lastTrack.value() != current);
 
         if (hasTrack) {
+            disconnectPending = false; // new track, cancel pending disconnect
             if (!ready.load()) {
                 if (changed) {
                     client->Connect();
@@ -500,6 +511,15 @@ int main() {
             needsPoll = false;
             poll();
             lastPollTime = now;
+        }
+
+        // Disconnect after grace period
+        if (disconnectPending && ready.load() &&
+            std::chrono::steady_clock::now() >= disconnectTimer) {
+            client->Disconnect();
+            ready.store(false);
+            disconnectPending = false;
+            std::cout << "[lastfm] nothing playing, disconnected" << std::endl;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));
