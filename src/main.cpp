@@ -226,8 +226,9 @@ int main() {
         discordpp::Activity activity;
         activity.SetType(discordpp::ActivityTypes::Listening);
         activity.SetName("Last.fm");
-        activity.SetDetails("");
-        activity.SetState("");
+        // Must be 2–128 chars per Discord API
+        activity.SetDetails("--");
+        activity.SetState("--");
         activity.SetStatusDisplayType(discordpp::StatusDisplayTypes::Name);
 
         client->UpdateRichPresence(
@@ -503,8 +504,8 @@ int main() {
     {
         discordpp::Activity activity;
         activity.SetType(discordpp::ActivityTypes::Listening);
-        activity.SetDetails("");
-        activity.SetState("");
+        activity.SetDetails("--");
+        activity.SetState("--");
         client->UpdateRichPresence(activity, [](auto) {});
     }
 
