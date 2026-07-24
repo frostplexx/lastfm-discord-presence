@@ -40,6 +40,11 @@ COPY src/ src/
 RUN cmake -S . -B out -DCMAKE_BUILD_TYPE=Release && \
     cmake --build out
 
+# Dependency check — fails build loudly if anything's missing,
+# instead of failing silently at runtime months later.
+RUN ldd out/lastfm-discord-presence
+RUN ldd out/libdiscord_partner_sdk.so
+
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
 FROM ubuntu:24.04
 RUN apt-get update && apt-get install -y \
