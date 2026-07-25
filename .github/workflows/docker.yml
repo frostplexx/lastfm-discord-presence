@@ -80,9 +80,35 @@ jobs:
             type=sha,prefix=
 
       - name: Build and push
+        id: build
         uses: docker/build-push-action@v5
         with:
           context: .
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+
+      # Discord Social SDK ships x86-64 .so only (no arm64 Linux .so).
+      # We publish a multi-arch manifest so Docker on arm64 pulls this
+      # amd64 image and runs it transparently via QEMU. When Discord
+      # ships an arm64 .so, switch to native arm64 builds here.
+      - name: Add arm64 manifest entries (QEMU-compatible)
+        run: |
+          tags=$(echo '${{ steps.meta.outputs.json }}' | jq -r '.tags[]')
+          digest=${{ steps.build.outputs.digest }}
+
+          for tag in $tags; do
+            repo="${tag%:*}"
+            echo "Creating multi-arch manifest for $tag (digest: $digest)"
+
+            docker manifest create "$tag" \
+              "$repo@$digest" \
+              "$repo@$digest"
+
+            docker manifest annotate "$tag" \
+              "$repo@$digest" \
+              --os linux --arch arm64 --variant v8
+
+            docker manifest push "$tag" --purge
+          done
