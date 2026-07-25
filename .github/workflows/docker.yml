@@ -93,29 +93,63 @@ jobs:
       # We publish a multi-arch manifest so Docker on arm64 pulls this
       # amd64 image and runs it transparently via QEMU. When Discord
       # ships an arm64 .so, switch to native arm64 builds here.
+      #
+      # docker manifest create with the same source twice then annotate
+      # overwrites the platform on both entries (same ref match), losing
+      # the amd64 entry. Instead we construct the OCI index manually and
+      # push via the registry API.
       - name: Add arm64 manifest entries (QEMU-compatible)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tags=$(echo '${{ steps.meta.outputs.json }}' | jq -r '.tags[]')
           digest=${{ steps.build.outputs.digest }}
 
           for tag in $tags; do
             repo="${tag%:*}"
+            tag_name="${tag#*:}"
+            registry_repo="${repo#ghcr.io/}"
 
-            # buildx always produces an OCI image index (manifest list)
-            # even for single-platform builds. Extract the amd64
-            # sub-manifest digest to use as source for docker manifest.
+            # Get OCI index pushed by buildx and extract amd64 sub-manifest digest
             raw=$(docker buildx imagetools inspect --raw "$repo@$digest")
-            amd64_digest=$(echo "$raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest')
+            amd64_digest=$(echo "$raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest // empty')
 
-            echo "Creating multi-arch manifest for $tag (amd64 digest: $amd64_digest)"
+            if [ -z "$amd64_digest" ]; then
+              # Single manifest — use directly
+              amd64_digest="$digest"
+            fi
 
-            docker manifest create "$tag" \
-              "$repo@$amd64_digest" \
-              "$repo@$amd64_digest"
+            # Get sub-manifest media type and size
+            sub_raw=$(docker buildx imagetools inspect --raw "$repo@$amd64_digest")
+            sub_mediaType=$(echo "$sub_raw" | jq -r '.mediaType')
 
-            docker manifest annotate "$tag" \
-              "$repo@$amd64_digest" \
-              --os linux --arch arm64 --variant v8
+            # Size from parent index, fallback to Content-Length
+            size=$(echo "$raw" | jq -r '.manifests[] | select(.digest == "'$amd64_digest'") | .size // 0')
+            if [ "$size" = "0" ] || [ -z "$size" ]; then
+              size=$(curl -sI -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: $sub_mediaType" \
+                "https://ghcr.io/v2/${registry_repo}/manifests/${amd64_digest}" | \
+                grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
+            fi
 
-            docker manifest push "$tag" --purge
+            # Build OCI index with amd64 + arm64 entries (same image, arm64 runs via QEMU)
+            index=$(jq -n \
+              --arg mt "$sub_mediaType" \
+              --arg d "$amd64_digest" \
+              --argjson s "$size" \
+              '{
+                schemaVersion: 2,
+                mediaType: "application/vnd.oci.image.index.v1+json",
+                manifests: [
+                  {mediaType: $mt, digest: $d, size: $s, platform: {architecture: "amd64", os: "linux"}},
+                  {mediaType: $mt, digest: $d, size: $s, platform: {architecture: "arm64", os: "linux", variant: "v8"}}
+                ]
+              }')
+
+            echo "Pushing multi-arch manifest for $tag (amd64: $amd64_digest)"
+            curl -X PUT \
+              -H "Authorization: Bearer $GITHUB_TOKEN" \
+              -H "Content-Type: application/vnd.oci.image.index.v1+json" \
+              -d "$index" \
+              "https://ghcr.io/v2/${registry_repo}/manifests/${tag_name}"
           done
