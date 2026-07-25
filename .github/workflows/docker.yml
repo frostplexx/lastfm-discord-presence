@@ -99,8 +99,6 @@ jobs:
       # the amd64 entry. Instead we construct the OCI index manually and
       # push via the registry API.
       - name: Add arm64 manifest entries (QEMU-compatible)
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tags=$(echo '${{ steps.meta.outputs.json }}' | jq -r '.tags[]')
           digest=${{ steps.build.outputs.digest }}
@@ -110,26 +108,52 @@ jobs:
             tag_name="${tag#*:}"
             registry_repo="${repo#ghcr.io/}"
 
+            echo "--- Processing $tag ---"
+
             # Get OCI index pushed by buildx and extract amd64 sub-manifest digest
             raw=$(docker buildx imagetools inspect --raw "$repo@$digest")
+            echo "raw type: $(echo "$raw" | jq -r '.mediaType // "unknown"')"
+
             amd64_digest=$(echo "$raw" | jq -r '.manifests[] | select(.platform.architecture == "amd64" and .platform.os == "linux") | .digest // empty')
 
             if [ -z "$amd64_digest" ]; then
-              # Single manifest — use directly
+              # Single manifest — use directly; get size
               amd64_digest="$digest"
+              size=$(echo "$raw" | jq -r '.layers | map(.size) | add // 0')
+            else
+              # Size from parent index entry
+              size=$(echo "$raw" | jq -r '.manifests[] | select(.digest == "'$amd64_digest'") | .size // 0')
             fi
 
-            # Get sub-manifest media type and size
+            # Get sub-manifest media type
             sub_raw=$(docker buildx imagetools inspect --raw "$repo@$amd64_digest")
             sub_mediaType=$(echo "$sub_raw" | jq -r '.mediaType')
 
-            # Size from parent index, fallback to Content-Length
-            size=$(echo "$raw" | jq -r '.manifests[] | select(.digest == "'$amd64_digest'") | .size // 0')
-            if [ "$size" = "0" ] || [ -z "$size" ]; then
-              size=$(curl -sI -H "Authorization: Bearer $GITHUB_TOKEN" \
+            # Normalize size to integer
+            size="${size%%[!0-9]*}"
+            size="${size:-0}"
+            echo "amd64_digest: $amd64_digest   sub_mediaType: $sub_mediaType   size: $size"
+
+            # Exchange Docker credentials for a registry token (more reliable than raw GITHUB_TOKEN)
+            encoded=$(cat ~/.docker/config.json | jq -r '.auths["ghcr.io"].auth // .auths["https://ghcr.io"].auth // empty' 2>/dev/null)
+            decoded=$(echo "$encoded" | base64 -d 2>/dev/null || true)
+            userpass="${decoded:-:}"
+            token=$(curl -s -u "$userpass" \
+              "https://ghcr.io/token?scope=repository:${registry_repo}:pull,push" | jq -r '.token')
+
+            if [ -z "$token" ] || [ "$token" = "null" ]; then
+              echo "ERROR: failed to get registry token"
+              exit 1
+            fi
+
+            # Fallback: if size is still 0, get it from Content-Length
+            if [ "$size" = "0" ]; then
+              size=$(curl -sI \
+                -H "Authorization: Bearer $token" \
                 -H "Accept: $sub_mediaType" \
                 "https://ghcr.io/v2/${registry_repo}/manifests/${amd64_digest}" | \
-                grep -i content-length | tail -1 | awk '{print $2}' | tr -d '\r')
+                grep -i content-length | tail -1 | awk '{print $2}' | tr -cd '0-9')
+              size="${size:-0}"
             fi
 
             # Build OCI index with amd64 + arm64 entries (same image, arm64 runs via QEMU)
@@ -146,10 +170,23 @@ jobs:
                 ]
               }')
 
-            echo "Pushing multi-arch manifest for $tag (amd64: $amd64_digest)"
-            curl -X PUT \
-              -H "Authorization: Bearer $GITHUB_TOKEN" \
+            echo "Pushing multi-arch manifest for $tag"
+            echo "$index" | head -5
+            response=$(curl -s -w "\n%{http_code}" -X PUT \
+              -H "Authorization: Bearer $token" \
               -H "Content-Type: application/vnd.oci.image.index.v1+json" \
               -d "$index" \
-              "https://ghcr.io/v2/${registry_repo}/manifests/${tag_name}"
+              "https://ghcr.io/v2/${registry_repo}/manifests/${tag_name}")
+            http_code=$(echo "$response" | tail -1)
+            body=$(echo "$response" | sed '$d')
+            echo "HTTP $http_code: $body"
+
+            if [ "$http_code" != "201" ]; then
+              echo "ERROR: failed to push manifest list"
+              exit 1
+            fi
+
+            # Verify the manifest list was stored
+            echo "Verifying..."
+            docker buildx imagetools inspect "$tag" 2>&1 | head -10
           done
