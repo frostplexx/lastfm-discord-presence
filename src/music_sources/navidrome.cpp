@@ -1,5 +1,5 @@
 #include "navidrome.h"
-#include "md5.h"
+#include "../md5.h"
 
 #include <chrono>
 #include <iostream>

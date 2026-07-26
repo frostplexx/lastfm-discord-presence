@@ -1,6 +1,6 @@
 #include "auth.h"
 #include "discordpp.h"
-#include "lastfm.h"
+#include "music_sources/lastfm.h"
 #include "store.h"
 #include "utils.h"
 

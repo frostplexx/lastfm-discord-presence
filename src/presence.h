@@ -8,7 +8,7 @@
 #include <chrono>
 
 #include "utils.h"
-#include "music_source.h"
+#include "music_sources/music_source.h"
 
 namespace discordpp { class Client; }
 
@@ -35,6 +35,7 @@ void poll(
     MusicSource& source,
     std::shared_ptr<discordpp::Client> client,
     std::optional<TrackId>& lastTrack,
+    uint64_t& lastSourceGen,
     std::optional<uint64_t>& trackStart,
     bool& pendingPost,
     bool& disconnectPending,

@@ -102,6 +102,7 @@ void poll(
     MusicSource& source,
     std::shared_ptr<discordpp::Client> client,
     std::optional<TrackId>& lastTrack,
+    uint64_t& lastSourceGen,
     std::optional<uint64_t>& trackStart,
     bool& pendingPost,
     bool& disconnectPending,
@@ -121,8 +122,12 @@ void poll(
     }
 
     // Check state vs last time we acted (posted or cleared)
+    // Also detect source switches (same TrackId from a different backend).
+    uint64_t currentGen = source.ActiveSourceGen();
+    bool sourceChanged = (currentGen != lastSourceGen);
     bool changed = (lastTrack.has_value() != hasTrack) ||
-                   (hasTrack && lastTrack.value() != current);
+                   (hasTrack && lastTrack.value() != current) ||
+                   sourceChanged;
 
     if (hasTrack) {
         disconnectPending = false; // new track, cancel pending disconnect
@@ -130,17 +135,19 @@ void poll(
             if (changed) {
                 client->Connect();
                 lastTrack = current;
+                lastSourceGen = currentGen;
                 pendingPost = true;
                 trackStart = time(nullptr); // capture at detection
             }
             return; // wait for Ready callback
         }
-        // Post if track changed OR we reconnected and have a pending post
+        // Post if track changed, source switched, or we reconnected
         if (!changed && !pendingPost)
             return;
         if (changed)
             trackStart.reset(); // reset progress bar for new track
         pendingPost = false;
+        lastSourceGen = currentGen;
         source.FillDuration(track.value());
         postPresence(client, track.value(), source.Branding(),
                      shareUsername, showSmallImage, trackStart);
@@ -150,5 +157,6 @@ void poll(
             return;
         clearPresence(disconnectPending, disconnectTimer, disconnectDelaySec);
         lastTrack = std::nullopt;
+        lastSourceGen = currentGen;
     }
 }

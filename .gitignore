@@ -5,3 +5,4 @@ docs/
 *.o.d
 lib/discord_social_sdk
 .env
+.DS_Store

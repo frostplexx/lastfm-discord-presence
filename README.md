@@ -4,13 +4,13 @@ C++20 daemon that polls [Last.fm](https://www.last.fm) or a self-hosted [Navidro
 
 ## Features
 
-- **Two music sources** — Last.fm (default) or Navidrome, selected via `MUSIC_SOURCE`
+- **Multiple music sources** — Last.fm and/or Navidrome, selected via `MUSIC_SOURCE` (comma-separated priority list)
 - **Listening status** — shows your currently playing track as a "Listening to..." presence
 - **Album art** — pulled from the source's API, displayed as the large image
 - **Duration + progress bar** — fetches track length, sets both start and end timestamps so Discord renders a visual progress bar
-- **Small image overlay** — source logo as the small icon (toggleable via `LASTFM_SHOW_SMALL_IMAGE=0`; Last.fm only)
+- **Small image overlay** — source logo as the small icon (toggleable via `SOURCE_SHOW_SMALL_IMAGE=0`; Last.fm only)
 - **Clickable URLs** — track name links to the source's track page, artist name links to artist page, album art links to album page
-- **"View on ..." button** — opens the track on the source (toggleable via `LASTFM_SHOW_BUTTON=0`)
+- **"View on ..." button** — opens the track on the source (toggleable via `SOURCE_SHOW_BUTTON=0`)
 - **OAuth2 token persistence** — saves both access and refresh tokens across restarts
 
 ## 🐳 Docker Deployment
@@ -70,46 +70,37 @@ docker run --rm -it \
 | Variable                   | Required                   | Default                    | Description                                                          |
 | --------------------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------|
 | `DISCORD_APP_ID`            | yes                          | —                           | Discord Application ID                                                |
-| `MUSIC_SOURCE`              | no                           | `lastfm`                    | `lastfm` or `navidrome`. Falls back to `lastfm` if unset/anything else |
-| `LASTFM_API_KEY`            | if `MUSIC_SOURCE=lastfm`     | —                           | Last.fm API key                                                       |
-| `LASTFM_USER`               | if `MUSIC_SOURCE=lastfm`     | —                           | Last.fm username to poll                                              |
-| `NAVIDROME_HOST`            | if `MUSIC_SOURCE=navidrome`  | —                           | Base URL of your Navidrome server, e.g. `https://music.example.com`   |
-| `NAVIDROME_ADMIN_USERNAME`  | if `MUSIC_SOURCE=navidrome`  | —                           | Username of a Navidrome **admin** account (see notice below)          |
-| `NAVIDROME_ADMIN_PASSWORD`  | if `MUSIC_SOURCE=navidrome`  | —                           | Password for that admin account                                       |
-| `NAVIDROME_USERNAME`        | if `MUSIC_SOURCE=navidrome`  | —                           | The Navidrome username whose playback should be watched               |
-| `LASTFM_POLL_INTERVAL_SEC`  | no                           | `10`                        | How often to poll the source (seconds)                                |
-| `LASTFM_SHOW_BUTTON`        | no                           | `1`                         | Show the "View on ..." button                                         |
-| `LASTFM_SHOW_SMALL_IMAGE`   | no                           | `1`                         | Show the source logo as a small image overlay (Last.fm only)          |
+| `MUSIC_SOURCE`              | no                           | `lastfm,navidrome`          | Comma-separated priority list: `lastfm,navidrome`, `lastfm`, `navidrome`, etc. Sources missing required env vars are skipped with a warning |
+| `LASTFM_API_KEY`            | for lastfm | —                          | Last.fm API key                                                       |
+| `LASTFM_USER`               | for lastfm | —                          | Last.fm username to poll                                              |
+| `NAVIDROME_HOST`            | for navidrome | —                       | Base URL of your Navidrome server, e.g. `https://music.example.com`   |
+| `NAVIDROME_ADMIN_USERNAME`  | for navidrome | —                       | Username of a Navidrome **admin** account (see notice below)          |
+| `NAVIDROME_ADMIN_PASSWORD`  | for navidrome | —                       | Password for that admin account                                       |
+| `NAVIDROME_USERNAME`        | for navidrome | —                       | The Navidrome username whose playback should be watched               |
+| `SOURCE_POLL_INTERVAL_SEC`  | no                           | `10`                        | How often to poll the source (seconds)                                |
+| `SOURCE_SHOW_BUTTON`        | no                           | `1`                         | Show the "View on ..." button                                         |
+| `SOURCE_SHOW_SMALL_IMAGE`   | no                           | `1`                         | Show the source logo as a small image overlay (Last.fm only)          |
+| `SOURCE_DISCONNECT_DELAY_SEC` | no                         | `30`                        | Seconds of no track from any source before disconnecting from Discord |
 | `DISCORD_TOKEN_FILE`        | no                           | `~/.lastfm-discord-token`  | Path to saved OAuth token file                                         |
 
 ### Navidrome setup
 
 > [!IMPORTANT]
-> Only a Navidrome **admin** account can see another user's now-playing status.
-> Since this daemon watches whichever user you set in `NAVIDROME_USERNAME`
-> (which may not be the account you're authenticating as), you must supply
-> credentials for an **admin** account via `NAVIDROME_ADMIN_USERNAME` /
-> `NAVIDROME_ADMIN_PASSWORD`. Regular user credentials will not reliably
-> return another user's now-playing data.
->
-> The admin password itself is never sent over the wire — it's used locally
-> to compute a salted token per the [Subsonic API](https://www.navidrome.org/docs/developers/subsonic-api/)'s
-> token authentication scheme.
+> Only an **admin** account can see another user's now-playing status.
+> Supply admin credentials via `NAVIDROME_ADMIN_USERNAME` /
+> `NAVIDROME_ADMIN_PASSWORD` (never sent over the wire — used locally
+> for [Subsonic token auth](https://www.navidrome.org/docs/developers/subsonic-api/)).
 
-Set `MUSIC_SOURCE=navidrome` and provide `NAVIDROME_HOST`, `NAVIDROME_ADMIN_USERNAME`,
-`NAVIDROME_ADMIN_PASSWORD`, and `NAVIDROME_USERNAME`. `NAVIDROME_HOST` must be
-reachable both by this daemon and by Discord's own servers (which fetch the
-album art URL directly), so a local-only address (e.g. `localhost` or a LAN
-IP) won't show artwork unless Navidrome is otherwise exposed to the internet.
+Set `MUSIC_SOURCE=navidrome` and the four `NAVIDROME_*` vars.
+`NAVIDROME_HOST` must be reachable by Discord's servers too (they fetch
+album art), so `localhost` won't work for artwork unless exposed.
 
-Now-playing data is read via Navidrome's `getNowPlaying` Subsonic API endpoint.
-Navidrome 0.62.0 reworked how its own web player *reports* playback (the
-`reportPlayback` OpenSubsonic extension replaced the old scrobble-based
-mechanism) and added a few extra fields to that endpoint's response. This
-daemon only depends on the fields that existed before that change (track
-title, artist, album, duration, username, "minutes ago"), so it works the
-same way against both older and newer Navidrome servers — the newer fields
-are used opportunistically when present and simply ignored otherwise.
+Polls Navidrome's `getNowPlaying` Subsonic endpoint. Compatible with
+Navidrome ≥0.49.0 (pre- and post-0.62.0 `reportPlayback` changes).
+
+> Most Navidrome scrobblers don't send "now playing" heartbeats to
+> Last.fm — only final scrobbles. If you only listen via Navidrome,
+> use `MUSIC_SOURCE=navidrome` and skip the Last.fm env vars.
 
 ### First-time auth
 
@@ -183,8 +174,10 @@ just docker-build
 │   └── nlohmann/json.hpp       # Copy for <nlohmann/json.hpp> include
 ├── src/
 │   ├── main.cpp                     # Entry point, OAuth flow, poll loop, presence updates
-│   ├── music_source.h               # MusicSource interface + SourceBranding (Last.fm/Navidrome abstraction)
-│   ├── track.h                      # Shared Track struct
+│   ├── music_sources/
+│   │   ├── music_source.h           # MusicSource interface + MultiSource + SourceBranding
+│   │   ├── music_source.cpp         # MultiSource implementation
+│   │   ├── track.h                  # Shared Track struct + TrackId
 │   ├── lastfm.h / lastfm.cpp        # Last.fm API client + LastfmSource
 │   ├── navidrome.h / navidrome.cpp  # Navidrome (Subsonic API) client + NavidromeSource
 │   ├── md5.h                        # Minimal MD5 (for Subsonic token auth)

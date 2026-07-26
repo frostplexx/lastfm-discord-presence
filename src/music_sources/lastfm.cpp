@@ -1,5 +1,5 @@
 #include "lastfm.h"
-#include "utils.h"
+#include "../utils.h"
 
 #include <cstring>
 #include <iostream>
