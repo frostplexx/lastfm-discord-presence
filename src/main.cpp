@@ -3,6 +3,7 @@
 
 #include "auth.h"
 #include "music_sources/lastfm.h"
+#include "music_sources/listenbrainz.h"
 #include "music_sources/navidrome.h"
 #include "music_sources/music_source.h"
 #include "presence.h"
@@ -45,11 +46,12 @@ int main() {
     const char* env_app_id = std::getenv("DISCORD_APP_ID");
     if (!env_app_id) {
         std::cerr << "Usage: DISCORD_APP_ID=<id> plus env vars for at least one source:\n"
-                     "  lastfm:   LASTFM_API_KEY=<key> LASTFM_USER=<user>\n"
-                     "  navidrome: NAVIDROME_HOST=<url> NAVIDROME_ADMIN_USERNAME=<user> "
+                     "  lastfm:      LASTFM_API_KEY=<key> LASTFM_USER=<user>\n"
+                     "  navidrome:   NAVIDROME_HOST=<url> NAVIDROME_ADMIN_USERNAME=<user> "
                      "NAVIDROME_ADMIN_PASSWORD=<pass> NAVIDROME_USERNAME=<user>\n"
+                     "  listenbrainz: LISTENBRAINZ_USER=<user>\n"
                      "MUSIC_SOURCE is a comma-separated priority list "
-                     "(default: lastfm,navidrome).\n"
+                     "(default: lastfm,listenbrainz,navidrome).\n"
                      "Optional: SOURCE_POLL_INTERVAL_SEC=<sec> (default 10)\n"
                      "          SOURCE_DISCONNECT_DELAY_SEC=<sec> (default 30)\n"
                      "          DISCORD_TOKEN_FILE=<path> "
@@ -59,9 +61,9 @@ int main() {
     uint64_t appId = parseAppId(env_app_id);
 
     // MUSIC_SOURCE is a comma-separated list of backends in priority
-    // order, e.g. "lastfm,navidrome" or "lastfm". Default: lastfm,navidrome.
+    // order, e.g. "lastfm,navidrome" or "lastfm". Default: lastfm,listenbrainz,navidrome.
     // Unconfigured sources are skipped with a warning.
-    std::string musicSources = "lastfm,navidrome";
+    std::string musicSources = "lastfm,listenbrainz,navidrome";
     if (const char* v = std::getenv("MUSIC_SOURCE")) {
         if (v[0] != '\0')
             musicSources = toLower(v);
@@ -109,6 +111,17 @@ int main() {
                 std::make_unique<NavidromeSource>(
                     env_host, env_admin_u, env_admin_p, env_nd_user));
             std::cout << "  source: navidrome (user: " << env_nd_user << ")\n";
+        } else if (token == "listenbrainz") {
+            const char* env_user = std::getenv("LISTENBRAINZ_USER");
+            if (!env_user) {
+                std::cerr << "[config] WARNING: listenbrainz listed in "
+                             "MUSIC_SOURCE but LISTENBRAINZ_USER not set, "
+                             "skipping\n";
+                continue;
+            }
+            multiSource->AddSource(
+                std::make_unique<ListenbrainzSource>(env_user));
+            std::cout << "  source: listenbrainz (user: " << env_user << ")\n";
         } else {
             std::cerr << "[config] WARNING: unknown music source '" << token
                       << "' in MUSIC_SOURCE, skipping\n";

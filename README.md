@@ -70,9 +70,10 @@ docker run --rm -it \
 | Variable                   | Required                   | Default                    | Description                                                          |
 | --------------------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------|
 | `DISCORD_APP_ID`            | yes                          | —                           | Discord Application ID                                                |
-| `MUSIC_SOURCE`              | no                           | `lastfm,navidrome`          | Comma-separated priority list: `lastfm,navidrome`, `lastfm`, `navidrome`, etc. Sources missing required env vars are skipped with a warning |
+| `MUSIC_SOURCE`              | no                           | `lastfm,listenbrainz,navidrome` | Comma-separated priority list: `lastfm,listenbrainz,navidrome`, `lastfm`, `listenbrainz`, etc. Sources missing required env vars are skipped with a warning |
 | `LASTFM_API_KEY`            | for lastfm | —                          | Last.fm API key                                                       |
 | `LASTFM_USER`               | for lastfm | —                          | Last.fm username to poll                                              |
+| `LISTENBRAINZ_USER`         | for listenbrainz | —                    | ListenBrainz username to poll (public endpoint, no API key needed)    |
 | `NAVIDROME_HOST`            | for navidrome | —                       | Base URL of your Navidrome server, e.g. `https://music.example.com`   |
 | `NAVIDROME_ADMIN_USERNAME`  | for navidrome | —                       | Username of a Navidrome **admin** account (see notice below)          |
 | `NAVIDROME_ADMIN_PASSWORD`  | for navidrome | —                       | Password for that admin account                                       |
@@ -82,6 +83,17 @@ docker run --rm -it \
 | `SOURCE_SHOW_SMALL_IMAGE`   | no                           | `1`                         | Show the source logo as a small image overlay (Last.fm only)          |
 | `SOURCE_DISCONNECT_DELAY_SEC` | no                         | `30`                        | Seconds of no track from any source before disconnecting from Discord |
 | `DISCORD_TOKEN_FILE`        | no                           | `~/.lastfm-discord-token`  | Path to saved OAuth token file                                         |
+
+### ListenBrainz setup
+
+ListenBrainz is a public service — just set `LISTENBRAINZ_USER` to the
+username you want to poll. No API key, no admin credentials needed.
+
+> The public [`playing-now`](https://listenbrainz.readthedocs.io/en/latest/users/api/core.html#get--1-user-(user_name)-playing-now)
+> endpoint returns currently playing tracks with artist, track, album, and
+> an optional release MBID (used for Cover Art Archive album art lookup).
+> Track duration is not available from the API, so the progress bar will
+> show no end time.
 
 ### Navidrome setup
 
@@ -179,6 +191,7 @@ just docker-build
 │   │   ├── music_source.cpp         # MultiSource implementation
 │   │   ├── track.h                  # Shared Track struct + TrackId
 │   ├── lastfm.h / lastfm.cpp        # Last.fm API client + LastfmSource
+│   ├── listenbrainz.h / listenbrainz.cpp  # ListenBrainz API client + ListenbrainzSource
 │   ├── navidrome.h / navidrome.cpp  # Navidrome (Subsonic API) client + NavidromeSource
 │   ├── md5.h                        # Minimal MD5 (for Subsonic token auth)
 │   ├── store.h / store.cpp          # Token persistence (access + refresh tokens)

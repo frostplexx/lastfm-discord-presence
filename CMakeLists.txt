@@ -14,6 +14,7 @@ set(DISCORD_SDK_INCLUDE_DIR "${DISCORD_SDK_ROOT}/include")
 add_executable(lastfm-discord-presence
   src/main.cpp
   src/music_sources/lastfm.cpp
+  src/music_sources/listenbrainz.cpp
   src/music_sources/music_source.cpp
   src/music_sources/navidrome.cpp
   src/store.cpp
