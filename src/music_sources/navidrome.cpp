@@ -162,6 +162,13 @@ std::optional<Track> NavidromeClient::NowPlaying(const std::string& targetUserna
         // Navidrome reports duration in whole seconds (unlike Last.fm's ms).
         t.durationSec = entry.value("duration", 0);
 
+        // positionMs was added in 0.62.0 (playbackReport). On older servers
+        // the field is simply absent, so this falls back to -1 (unsupported)
+        // and the poll loop skips seek detection for this track.
+        int positionMs = entry.value("positionMs", -1);
+        if (positionMs >= 0)
+            t.positionSec = positionMs / 1000;
+
         std::string coverArt = entry.value("coverArt", "");
         if (!coverArt.empty()) {
             t.imageUrl = host_ + "/rest/getCoverArt.view?id=" +

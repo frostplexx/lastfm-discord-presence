@@ -84,6 +84,13 @@ void postPresence(
     std::cout << std::endl;
 }
 
+namespace {
+// How far the source-reported playback position may drift from what we'd
+// expect (based on trackStart) before we treat it as a seek rather than
+// normal playback progression, and resync the progress bar.
+constexpr int64_t kSeekToleranceSec = 5;
+} // namespace
+
 // ── clearPresence ────────────────────────────────────────────────────────────
 void clearPresence(
     bool& disconnectPending,
@@ -141,8 +148,25 @@ void poll(
             }
             return; // wait for Ready callback
         }
-        // Post if track changed, source switched, or we reconnected
-        if (!changed && !pendingPost)
+        // Detect seeks on the same track: if the source reports a playback
+        // position that doesn't match what we'd expect from trackStart,
+        // resync trackStart so Discord's progress bar jumps too, instead of
+        // silently drifting out of sync until the track actually changes.
+        bool seeked = false;
+        if (!changed && track->positionSec >= 0 && trackStart.has_value()) {
+            int64_t now = static_cast<int64_t>(time(nullptr));
+            int64_t expectedPos = now - static_cast<int64_t>(*trackStart);
+            int64_t drift = expectedPos - track->positionSec;
+            if (drift < 0)
+                drift = -drift;
+            if (drift > kSeekToleranceSec) {
+                seeked = true;
+                trackStart = static_cast<uint64_t>(now - track->positionSec);
+            }
+        }
+
+        // Post if track changed, source switched, we reconnected, or seeked
+        if (!changed && !pendingPost && !seeked)
             return;
         if (changed)
             trackStart.reset(); // reset progress bar for new track
