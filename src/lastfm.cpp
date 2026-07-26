@@ -1,4 +1,5 @@
 #include "lastfm.h"
+#include "utils.h"
 
 #include <cstring>
 #include <iostream>
@@ -230,4 +231,35 @@ std::optional<int> LastfmClient::GetTrackDuration(const std::string& apiKey,
         return std::nullopt;
 
     return millis / 1000; // return seconds
+}
+
+// ── LastfmSource ─────────────────────────────────────────────────────────────
+LastfmSource::LastfmSource(std::string apiKey, std::string user)
+    : apiKey_(std::move(apiKey)), user_(std::move(user)) {}
+
+std::optional<Track> LastfmSource::NowPlaying() {
+    auto track = client_.NowPlaying(apiKey_, user_);
+    if (!track.has_value())
+        return std::nullopt;
+
+    track->artistUrl = artistUrlFromName(track->artist);
+    if (!track->album.empty())
+        track->albumUrl = albumUrlFromNames(track->artist, track->album);
+
+    return track;
+}
+
+void LastfmSource::FillDuration(Track& t) {
+    auto dur = client_.GetTrackDuration(apiKey_, t.artist, t.name);
+    if (dur.has_value())
+        t.durationSec = *dur;
+}
+
+SourceBranding LastfmSource::Branding() const {
+    return SourceBranding{
+        "Last.fm",
+        "https://www.last.fm/static/images/lastfm_avatar_twitter.png",
+        "https://www.last.fm/user/" + user_,
+        "View on Last.fm",
+    };
 }

@@ -8,7 +8,7 @@
 #include <chrono>
 
 #include "utils.h"
-#include "lastfm.h"
+#include "music_source.h"
 
 namespace discordpp { class Client; }
 
@@ -17,7 +17,7 @@ namespace discordpp { class Client; }
 void postPresence(
     std::shared_ptr<discordpp::Client> client,
     const Track& t,
-    const std::string& lastfmUser,
+    const SourceBranding& branding,
     bool shareUsername,
     bool showSmallImage,
     std::optional<uint64_t>& trackStart);
@@ -28,12 +28,11 @@ void clearPresence(
     std::chrono::steady_clock::time_point& disconnectTimer,
     int disconnectDelaySec);
 
-// Poll Last.fm for the currently playing track and update Discord presence.
+// Poll the configured music source for the currently playing track and
+// update Discord presence.
 // Modifies shared state: lastTrack, trackStart, pendingPost, disconnectPending, etc.
 void poll(
-    LastfmClient& lastfm,
-    const std::string& apiKey,
-    const std::string& lastfmUser,
+    MusicSource& source,
     std::shared_ptr<discordpp::Client> client,
     std::optional<TrackId>& lastTrack,
     std::optional<uint64_t>& trackStart,

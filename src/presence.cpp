@@ -9,7 +9,7 @@
 void postPresence(
     std::shared_ptr<discordpp::Client> client,
     const Track& t,
-    const std::string& lastfmUser,
+    const SourceBranding& branding,
     bool shareUsername,
     bool showSmallImage,
     std::optional<uint64_t>& trackStart)
@@ -24,27 +24,28 @@ void postPresence(
     // Clickable links
     if (!t.trackUrl.empty())
         activity.SetDetailsUrl(t.trackUrl);
-    activity.SetStateUrl(artistUrlFromName(t.artist));
+    if (!t.artistUrl.empty())
+        activity.SetStateUrl(t.artistUrl);
 
     // Album art as large image
     discordpp::ActivityAssets assets;
     if (!t.imageUrl.empty()) {
         assets.SetLargeImage(t.imageUrl);
         assets.SetLargeText(t.album.empty() ? t.artist : t.album);
-        if (!t.album.empty())
-            assets.SetLargeUrl(albumUrlFromNames(t.artist, t.album));
+        if (!t.albumUrl.empty())
+            assets.SetLargeUrl(t.albumUrl);
     } else {
         assets.SetLargeImage(
             "https://www.last.fm/static/images/lastfm_avatar_twitter.png");
-        assets.SetLargeText("Last.fm");
+        assets.SetLargeText(branding.name);
     }
 
-    // Small image: Last.fm logo overlay (optional)
-    if (showSmallImage) {
-        assets.SetSmallImage(
-            "https://www.last.fm/static/images/lastfm_avatar_twitter.png");
-        assets.SetSmallText("Last.fm");
-        assets.SetSmallUrl("https://www.last.fm/user/" + lastfmUser);
+    // Small image: source logo overlay (optional, skipped if the source has none)
+    if (showSmallImage && !branding.smallImageUrl.empty()) {
+        assets.SetSmallImage(branding.smallImageUrl);
+        assets.SetSmallText(branding.name);
+        if (!branding.smallImageLinkUrl.empty())
+            assets.SetSmallUrl(branding.smallImageLinkUrl);
     }
 
     activity.SetAssets(assets);
@@ -60,13 +61,11 @@ void postPresence(
         ts.SetEnd(*trackStart + t.durationSec);
     activity.SetTimestamps(ts);
 
-    // "View on Last.fm" button
-    if (shareUsername) {
+    // "View on <source>" button
+    if (shareUsername && !t.trackUrl.empty()) {
         discordpp::ActivityButton btn;
-        btn.SetLabel("View on Last.fm");
-        btn.SetUrl(artistUrlFromName(t.artist) + "/_/" + t.name);
-        if (!t.trackUrl.empty())
-            btn.SetUrl(t.trackUrl);
+        btn.SetLabel(branding.buttonLabel);
+        btn.SetUrl(t.trackUrl);
         activity.AddButton(btn);
     }
 
@@ -77,7 +76,7 @@ void postPresence(
                           << std::endl;
         });
 
-    std::cout << "[lastfm] \u266B " << t.name << " \u2014 " << t.artist;
+    std::cout << "[" << branding.name << "] ♫ " << t.name << " — " << t.artist;
     if (t.durationSec > 0)
         std::cout << " (" << t.durationSec / 60 << ":"
                   << (t.durationSec % 60 < 10 ? "0" : "")
@@ -94,15 +93,13 @@ void clearPresence(
     disconnectPending = true;
     disconnectTimer = std::chrono::steady_clock::now()
                     + std::chrono::seconds(disconnectDelaySec);
-    std::cout << "[lastfm] nothing playing, will disconnect in "
+    std::cout << "[presence] nothing playing, will disconnect in "
               << disconnectDelaySec << "s" << std::endl;
 }
 
 // ── poll ─────────────────────────────────────────────────────────────────────
 void poll(
-    LastfmClient& lastfm,
-    const std::string& apiKey,
-    const std::string& lastfmUser,
+    MusicSource& source,
     std::shared_ptr<discordpp::Client> client,
     std::optional<TrackId>& lastTrack,
     std::optional<uint64_t>& trackStart,
@@ -114,7 +111,7 @@ void poll(
     bool shareUsername,
     bool showSmallImage)
 {
-    auto track = lastfm.NowPlaying(apiKey, lastfmUser);
+    auto track = source.NowPlaying();
     TrackId current;
     bool hasTrack = false;
 
@@ -144,11 +141,8 @@ void poll(
         if (changed)
             trackStart.reset(); // reset progress bar for new track
         pendingPost = false;
-        auto dur = lastfm.GetTrackDuration(apiKey, track->artist,
-                                           track->name);
-        if (dur.has_value())
-            track->durationSec = *dur;
-        postPresence(client, track.value(), lastfmUser,
+        source.FillDuration(track.value());
+        postPresence(client, track.value(), source.Branding(),
                      shareUsername, showSmallImage, trackStart);
         lastTrack = current;
     } else {

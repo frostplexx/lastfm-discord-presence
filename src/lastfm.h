@@ -3,14 +3,8 @@
 #include <string>
 #include <optional>
 
-struct Track {
-    std::string artist;
-    std::string name;
-    std::string album;       // may be empty
-    std::string imageUrl;    // album art URL ("large" size)
-    std::string trackUrl;    // track page on last.fm
-    int durationSec{0};      // track duration in seconds (0 = unknown)
-};
+#include "music_source.h"
+#include "track.h"
 
 class LastfmClient {
 public:
@@ -42,4 +36,19 @@ private:
 
     // CURL easy handle (RAII via constructor/destructor)
     void* curl_{nullptr};
+};
+
+// MusicSource adapter around LastfmClient for the generic poll loop.
+class LastfmSource : public MusicSource {
+public:
+    LastfmSource(std::string apiKey, std::string user);
+
+    std::optional<Track> NowPlaying() override;
+    void FillDuration(Track& t) override;
+    SourceBranding Branding() const override;
+
+private:
+    LastfmClient client_;
+    std::string apiKey_;
+    std::string user_;
 };
