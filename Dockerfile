@@ -13,7 +13,7 @@
 #     this build runs.
 
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
-FROM ubuntu:24.04 AS builder
+FROM ubuntu:26.04 AS builder
 RUN apt-get update && apt-get install -y \
     cmake \
     g++ \
@@ -46,7 +46,7 @@ RUN ldd out/lastfm-discord-presence
 RUN ldd out/libdiscord_partner_sdk.so
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM ubuntu:24.04
+FROM ubuntu:26.04
 RUN apt-get update && apt-get install -y \
     libcurl4 \
     libatomic1 \
