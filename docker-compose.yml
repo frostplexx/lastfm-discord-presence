@@ -1,6 +1,6 @@
 services:
   lastfm-presence:
-    image: ghcr.io/${GITHUB_REPOSITORY:-lastfm-discord-presence}/lastfm-discord-presence:latest
+    image: ghcr.io/${GITHUB_REPOSITORY:-lastfm-discord-presence}/lastfm-discord-presence:main
     container_name: lastfm-presence
     environment:
       - DISCORD_APP_ID=${DISCORD_APP_ID:?err}
