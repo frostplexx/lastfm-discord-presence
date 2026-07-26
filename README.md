@@ -1,17 +1,18 @@
 # lastfm-discord-presence
 
-C++20 daemon that polls [Last.fm](https://www.last.fm) or a self-hosted [Navidrome](https://www.navidrome.org) server for currently playing tracks and sets them as Discord Rich Presence via the [Discord Social SDK](https://discord.com/developers/docs/social-sdk/overview) authenticated (server-connected) path.
+Small daemon that polls [Last.fm](https://www.last.fm), ListenBrainz, or a self-hosted
+[Navidrome](https://www.navidrome.org) server for currently playing tracks and sets them as Discord Rich Presence via
+the [Discord Social SDK](https://discord.com/developers/docs/social-sdk/overview) authenticated (server-connected) path.
 
 ## Features
 
-- **Multiple music sources** — Last.fm and/or Navidrome, selected via `MUSIC_SOURCE` (comma-separated priority list)
+- **Multiple music sources** — Last.fm, Navidrome, Listenbrainz, selected via `MUSIC_SOURCE` (comma-separated priority list)
 - **Listening status** — shows your currently playing track as a "Listening to..." presence
 - **Album art** — pulled from the source's API, displayed as the large image
 - **Duration + progress bar** — fetches track length, sets both start and end timestamps so Discord renders a visual progress bar
 - **Small image overlay** — source logo as the small icon (toggleable via `SOURCE_SHOW_SMALL_IMAGE=0`; Last.fm only)
 - **Clickable URLs** — track name links to the source's track page, artist name links to artist page, album art links to album page
 - **"View on ..." button** — opens the track on the source (toggleable via `SOURCE_SHOW_BUTTON=0`)
-- **OAuth2 token persistence** — saves both access and refresh tokens across restarts
 
 ## 🐳 Docker Deployment
 
@@ -49,7 +50,6 @@ docker compose up -d
 docker run --rm -it \
   -e LASTFM_API_KEY=xxx \
   -e LASTFM_USER=xxx \
-  -e DISCORD_APP_ID=xxx \
   -v lastfm-presence-token:/data \
   ghcr.io/frostplexx/lastfm-discord-presence:main
 
@@ -63,13 +63,19 @@ docker run --rm -it \
   -e DISCORD_APP_ID=xxx \
   -v lastfm-presence-token:/data \
   ghcr.io/frostplexx/lastfm-discord-presence:main
+
+#ListenBrainz
+docker run --rm -it \
+  -e LISTENBRAINZ_USER=xxx \
+  -v lastfm-presence-token:/data \
+  ghcr.io/frostplexx/lastfm-discord-presence:main
 ```
 
 ### Available Environment variables
 
 | Variable                   | Required                   | Default                    | Description                                                          |
 | --------------------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------|
-| `DISCORD_APP_ID`            | no                           | `1529873019353301063` (built-in) | Discord Application ID. Override to use your own app                   |
+| `DISCORD_APP_ID`            | no                           | (built-in)                 | Discord Application ID. Override to use your own app                   |
 | `MUSIC_SOURCE`              | no                           | `lastfm,listenbrainz,navidrome` | Comma-separated priority list: `lastfm,listenbrainz,navidrome`, `lastfm`, `listenbrainz`, etc. Sources missing required env vars are skipped with a warning |
 | `LASTFM_API_KEY`            | for lastfm | —                          | Last.fm API key                                                       |
 | `LASTFM_USER`               | for lastfm | —                          | Last.fm username to poll                                              |
@@ -84,16 +90,11 @@ docker run --rm -it \
 | `SOURCE_DISCONNECT_DELAY_SEC` | no                         | `30`                        | Seconds of no track from any source before disconnecting from Discord |
 | `DISCORD_TOKEN_FILE`        | no                           | `~/.lastfm-discord-token`  | Path to saved OAuth token file                                         |
 
-### ListenBrainz setup
 
-ListenBrainz is a public service — just set `LISTENBRAINZ_USER` to the
-username you want to poll. No API key, no admin credentials needed.
+### First-time auth
 
-> The public [`playing-now`](https://listenbrainz.readthedocs.io/en/latest/users/api/core.html#get--1-user-(user_name)-playing-now)
-> endpoint returns currently playing tracks with artist, track, album, and
-> an optional release MBID (used for Cover Art Archive album art lookup).
-> Track duration is not available from the API, so the progress bar will
-> show no end time.
+On first run the daemon prints a URL + code. Open it on any device to authorize Discord → token is saved to the
+persistent volume. Subsequent runs reuse the stored token.
 
 ### Navidrome setup
 
@@ -114,10 +115,6 @@ Navidrome ≥0.49.0 (pre- and post-0.62.0 `reportPlayback` changes).
 > Last.fm — only final scrobbles. If you only listen via Navidrome,
 > use `MUSIC_SOURCE=navidrome` and skip the Last.fm env vars.
 
-### First-time auth
-
-On first run the daemon prints a URL + code. Open it on any device to authorize Discord → token is saved to the
-persistent volume. Subsequent runs reuse the stored token.
 
 ## 🔧 Local Development
 
