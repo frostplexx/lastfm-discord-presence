@@ -3,11 +3,15 @@
 
 #include "auth.h"
 #include "lastfm.h"
+#include "navidrome.h"
+#include "music_source.h"
 #include "presence.h"
 #include "store.h"
 #include "utils.h"
 
+#include <algorithm>
 #include <atomic>
+#include <cctype>
 #include <chrono>
 #include <csignal>
 #include <cstdlib>
@@ -24,26 +28,76 @@ void signalHandler(int) {
     running.store(false);
 }
 
+namespace {
+
+std::string toLower(std::string s) {
+    std::transform(s.begin(), s.end(), s.begin(),
+                   [](unsigned char c) { return std::tolower(c); });
+    return s;
+}
+
+} // namespace
+
 // ── Main ────────────────────────────────────────────────────────────────────
 int main() {
     // ── Config from environment ───────────────────────────────────────────
-    const char* env_api_key  = std::getenv("LASTFM_API_KEY");
-    const char* env_user     = std::getenv("LASTFM_USER");
-    const char* env_app_id   = std::getenv("DISCORD_APP_ID");
-
-    if (!env_api_key || !env_user || !env_app_id) {
-        std::cerr << "Usage: LASTFM_API_KEY=<key> LASTFM_USER=<user> "
-                     "DISCORD_APP_ID=<id>\n"
+    const char* env_app_id = std::getenv("DISCORD_APP_ID");
+    if (!env_app_id) {
+        std::cerr << "Usage: DISCORD_APP_ID=<id> plus either:\n"
+                     "  LASTFM_API_KEY=<key> LASTFM_USER=<user>              "
+                     "(MUSIC_SOURCE=lastfm, default)\n"
+                     "  NAVIDROME_HOST=<url> NAVIDROME_ADMIN_USERNAME=<user> "
+                     "NAVIDROME_ADMIN_PASSWORD=<pass> NAVIDROME_USERNAME=<user> "
+                     "(MUSIC_SOURCE=navidrome)\n"
                      "Optional: LASTFM_POLL_INTERVAL_SEC=<sec> (default 10)\n"
                      "          LASTFM_DISCONNECT_DELAY_SEC=<sec> (default 30)\n"
                      "          DISCORD_TOKEN_FILE=<path> "
                      "(default ~/.lastfm-discord-token)\n";
         return 1;
     }
+    uint64_t appId = parseAppId(env_app_id);
 
-    std::string apiKey(env_api_key);
-    std::string lastfmUser(env_user);
-    uint64_t    appId = parseAppId(env_app_id);
+    // MUSIC_SOURCE selects the backend: "navidrome" or "lastfm".
+    // Unset or any other value falls back to lastfm.
+    std::string musicSource = "lastfm";
+    if (const char* v = std::getenv("MUSIC_SOURCE"))
+        musicSource = toLower(v);
+
+    std::unique_ptr<MusicSource> source;
+    std::string monitoredUser; // for logging only
+
+    if (musicSource == "navidrome") {
+        const char* env_host      = std::getenv("NAVIDROME_HOST");
+        const char* env_admin_u   = std::getenv("NAVIDROME_ADMIN_USERNAME");
+        const char* env_admin_p   = std::getenv("NAVIDROME_ADMIN_PASSWORD");
+        const char* env_nd_user   = std::getenv("NAVIDROME_USERNAME");
+
+        if (!env_host || !env_admin_u || !env_admin_p || !env_nd_user) {
+            std::cerr << "MUSIC_SOURCE=navidrome requires NAVIDROME_HOST, "
+                         "NAVIDROME_ADMIN_USERNAME, NAVIDROME_ADMIN_PASSWORD "
+                         "and NAVIDROME_USERNAME\n"
+                         "(admin credentials are required because only an "
+                         "admin account can see another user's now-playing "
+                         "status)\n";
+            return 1;
+        }
+
+        monitoredUser = env_nd_user;
+        source = std::make_unique<NavidromeSource>(
+            env_host, env_admin_u, env_admin_p, env_nd_user);
+    } else {
+        const char* env_api_key = std::getenv("LASTFM_API_KEY");
+        const char* env_user    = std::getenv("LASTFM_USER");
+
+        if (!env_api_key || !env_user) {
+            std::cerr << "LASTFM_API_KEY and LASTFM_USER are required "
+                         "(MUSIC_SOURCE=lastfm, the default)\n";
+            return 1;
+        }
+
+        monitoredUser = env_user;
+        source = std::make_unique<LastfmSource>(env_api_key, env_user);
+    }
 
     int pollIntervalSec = 10;
     if (const char* v = std::getenv("LASTFM_POLL_INTERVAL_SEC"))
@@ -70,7 +124,8 @@ int main() {
     std::signal(SIGTERM, signalHandler);
 
     std::cout << "=== lastfm-discord-presence ===\n"
-              << "  user:       " << lastfmUser << "\n"
+              << "  source:     " << musicSource << "\n"
+              << "  user:       " << monitoredUser << "\n"
               << "  poll every: " << pollIntervalSec << "s\n"
               << "  disconnect: " << disconnectDelaySec << "s\n"
               << "  token:      " << tokenFile << "\n"
@@ -169,7 +224,7 @@ int main() {
                            .count();
         if (needsPoll || elapsed >= pollIntervalSec) {
             needsPoll = false;
-            poll(lastfm, apiKey, lastfmUser, client,
+            poll(*source, client,
                  lastTrack, trackStart, pendingPost,
                  disconnectPending, disconnectTimer, ready,
                  disconnectDelaySec, shareUsername, showSmallImage);
@@ -182,7 +237,7 @@ int main() {
             client->Disconnect();
             ready.store(false);
             disconnectPending = false;
-            std::cout << "[lastfm] nothing playing, disconnected" << std::endl;
+            std::cout << "[presence] nothing playing, disconnected" << std::endl;
         }
 
         std::this_thread::sleep_for(std::chrono::milliseconds(200));

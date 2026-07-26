@@ -65,8 +65,13 @@ docker-build:
 # Run locally via Docker (set .env or pass vars)
 docker-run:
     docker run --rm -it \
+      -e MUSIC_SOURCE="${MUSIC_SOURCE:-lastfm}" \
       -e LASTFM_API_KEY="${LASTFM_API_KEY}" \
       -e LASTFM_USER="${LASTFM_USER}" \
+      -e NAVIDROME_HOST="${NAVIDROME_HOST}" \
+      -e NAVIDROME_ADMIN_USERNAME="${NAVIDROME_ADMIN_USERNAME}" \
+      -e NAVIDROME_ADMIN_PASSWORD="${NAVIDROME_ADMIN_PASSWORD}" \
+      -e NAVIDROME_USERNAME="${NAVIDROME_USERNAME}" \
       -e DISCORD_APP_ID="${DISCORD_APP_ID}" \
       -v lastfm-presence-token:/data \
       lastfm-discord-presence

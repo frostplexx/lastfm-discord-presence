@@ -3,9 +3,17 @@ services:
     image: ghcr.io/${GITHUB_REPOSITORY:-lastfm-discord-presence}/lastfm-discord-presence:latest
     container_name: lastfm-presence
     environment:
-      - LASTFM_API_KEY=${LASTFM_API_KEY:?err}
-      - LASTFM_USER=${LASTFM_USER:?err}
       - DISCORD_APP_ID=${DISCORD_APP_ID:?err}
+      - MUSIC_SOURCE=${MUSIC_SOURCE:-lastfm}
+      # Required when MUSIC_SOURCE=lastfm (the default):
+      - LASTFM_API_KEY=${LASTFM_API_KEY:-}
+      - LASTFM_USER=${LASTFM_USER:-}
+      # Required when MUSIC_SOURCE=navidrome (admin creds needed to see
+      # another user's now-playing status — see README):
+      - NAVIDROME_HOST=${NAVIDROME_HOST:-}
+      - NAVIDROME_ADMIN_USERNAME=${NAVIDROME_ADMIN_USERNAME:-}
+      - NAVIDROME_ADMIN_PASSWORD=${NAVIDROME_ADMIN_PASSWORD:-}
+      - NAVIDROME_USERNAME=${NAVIDROME_USERNAME:-}
       - LASTFM_POLL_INTERVAL_SEC=${LASTFM_POLL_INTERVAL_SEC:-10}
       - LASTFM_SHOW_BUTTON=${LASTFM_SHOW_BUTTON:-1}
       - LASTFM_SHOW_SMALL_IMAGE=${LASTFM_SHOW_SMALL_IMAGE:-1}
