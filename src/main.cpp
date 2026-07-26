@@ -44,21 +44,16 @@ std::string toLower(std::string s) {
 int main() {
     // ── Config from environment ───────────────────────────────────────────
     const char* env_app_id = std::getenv("DISCORD_APP_ID");
-    if (!env_app_id) {
-        std::cerr << "Usage: DISCORD_APP_ID=<id> plus env vars for at least one source:\n"
-                     "  lastfm:      LASTFM_API_KEY=<key> LASTFM_USER=<user>\n"
-                     "  navidrome:   NAVIDROME_HOST=<url> NAVIDROME_ADMIN_USERNAME=<user> "
-                     "NAVIDROME_ADMIN_PASSWORD=<pass> NAVIDROME_USERNAME=<user>\n"
-                     "  listenbrainz: LISTENBRAINZ_USER=<user>\n"
-                     "MUSIC_SOURCE is a comma-separated priority list "
-                     "(default: lastfm,listenbrainz,navidrome).\n"
-                     "Optional: SOURCE_POLL_INTERVAL_SEC=<sec> (default 10)\n"
-                     "          SOURCE_DISCONNECT_DELAY_SEC=<sec> (default 30)\n"
-                     "          DISCORD_TOKEN_FILE=<path> "
-                     "(default ~/.lastfm-discord-token)\n";
-        return 1;
-    }
+    const char* kDefaultAppId = "1529873019353301063";
+    if (!env_app_id)
+        env_app_id = kDefaultAppId;
     uint64_t appId = parseAppId(env_app_id);
+
+    if (std::getenv("DISCORD_APP_ID")) {
+        std::cout << "  app: " << env_app_id << " (from env)\n";
+    } else {
+        std::cout << "  app: " << env_app_id << " (built-in default)\n";
+    }
 
     // MUSIC_SOURCE is a comma-separated list of backends in priority
     // order, e.g. "lastfm,navidrome" or "lastfm". Default: lastfm,listenbrainz,navidrome.

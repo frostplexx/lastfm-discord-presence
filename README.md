@@ -69,7 +69,7 @@ docker run --rm -it \
 
 | Variable                   | Required                   | Default                    | Description                                                          |
 | --------------------------- | --------------------------- | --------------------------- | ---------------------------------------------------------------------|
-| `DISCORD_APP_ID`            | yes                          | —                           | Discord Application ID                                                |
+| `DISCORD_APP_ID`            | no                           | `1529873019353301063` (built-in) | Discord Application ID. Override to use your own app                   |
 | `MUSIC_SOURCE`              | no                           | `lastfm,listenbrainz,navidrome` | Comma-separated priority list: `lastfm,listenbrainz,navidrome`, `lastfm`, `listenbrainz`, etc. Sources missing required env vars are skipped with a warning |
 | `LASTFM_API_KEY`            | for lastfm | —                          | Last.fm API key                                                       |
 | `LASTFM_USER`               | for lastfm | —                          | Last.fm username to poll                                              |
