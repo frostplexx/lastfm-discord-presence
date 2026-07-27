@@ -188,6 +188,10 @@ int main() {
     auto lastPollTime = std::chrono::steady_clock::now();
 
     // ── Status callback ───────────────────────────────────────────────────
+    // Forward-declared; defined after auth wiring below so it can trigger re-auth.
+    std::function<void()> doOnAuthError;
+    std::atomic<bool>     authRecovering{false};
+
     client->SetStatusChangedCallback(
         [&](discordpp::Client::Status status,
             discordpp::Client::Error   error,
@@ -203,23 +207,49 @@ int main() {
                 std::cerr << "[sdk] error: "
                           << discordpp::Client::ErrorToString(error)
                           << " detail=" << errorDetail << std::endl;
+                // Close code 4004 = Authentication failed, try to recover.
+                if (errorDetail == 4004 && !authRecovering.exchange(true)) {
+                    ready.store(false);
+                    doOnAuthError();
+                }
             }
         });
 
     // ── Auth callback wiring ──────────────────────────────────────────────
-    // These are captured-by-reference in the lambdas that auth functions need.
-    auto doConnectWithToken =
+    // Forward-declare so both lambdas can reference each other.
+    std::function<void(const std::string&, const std::string&)> doConnectWithToken;
+    std::function<void()> doStartOAuth;
+
+    doConnectWithToken =
         [&](const std::string& accessToken,
             const std::string& refreshToken) {
-            connectWithToken(client, tokenFile, accessToken, refreshToken);
+            connectWithToken(client, appId, tokenFile,
+                             doStartOAuth, doConnectWithToken,
+                             accessToken, refreshToken);
         };
 
-    std::function<void()> doStartOAuth = [&]() {
+    doStartOAuth = [&]() {
         startOAuth(client, lastfm, appId, doConnectWithToken, running);
     };
 
     auto doTryRefresh = [&]() {
         tryRefresh(client, appId, tokenFile, doStartOAuth, doConnectWithToken);
+    };
+
+    // On auth error (4004): try refresh, fall through to OAuth.
+    // Guard resets only on successful token exchange, preventing retry storms.
+    doOnAuthError = [&]() {
+        auto wrappedConnect =
+            [&](const std::string& accessToken,
+                const std::string& refreshToken) {
+                authRecovering.store(false);
+                doConnectWithToken(accessToken, refreshToken);
+            };
+        auto wrappedOAuth = [&]() {
+            startOAuth(client, lastfm, appId, wrappedConnect, running);
+            authRecovering.store(false);
+        };
+        tryRefresh(client, appId, tokenFile, wrappedOAuth, wrappedConnect);
     };
 
     // ── Startup: try saved access token first, then refresh, then OAuth ────

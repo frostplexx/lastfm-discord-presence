@@ -26,8 +26,12 @@ void tryRefresh(
     const std::function<void(const std::string&, const std::string&)>& connectWithToken);
 
 // Save the token pair and update the SDK client with a new bearer token.
+// Also registers the proactive refresh callback for automatic token renewal.
 void connectWithToken(
     std::shared_ptr<discordpp::Client> client,
+    uint64_t appId,
     const std::string& tokenFile,
+    const std::function<void()>& startOAuthFn,
+    const std::function<void(const std::string&, const std::string&)>& connectWithTokenFn,
     const std::string& accessToken,
     const std::string& refreshToken);
