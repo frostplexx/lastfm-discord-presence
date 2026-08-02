@@ -12,9 +12,9 @@ class LastfmClient;
 // SDK callback dispatch (i.e. not nested inside discordpp::RunCallbacks()).
 //
 // The SDK does not tolerate being re-entered synchronously from within its
-// own completion callbacks (UpdateToken/RefreshToken/Connect called back-to
-// -back from inside another callback reliably segfaults — see crash
-// investigation history). Every callback body below that needs to trigger
+// own completion callbacks (UpdateToken/RefreshToken/Connect called back-to-back
+// from inside another callback reliably segfaults — see crash investigation
+// history). Every callback body below that needs to trigger
 // another SDK call goes through `defer` instead of calling directly.
 using DeferFn = std::function<void(std::function<void()>)>;
 
