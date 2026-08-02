@@ -22,6 +22,7 @@
 #include <sstream>
 #include <string>
 #include <thread>
+#include <vector>
 
 // ── Globals (signal handler needs them) ─────────────────────────────────────
 static std::atomic<bool> running{true};
@@ -187,6 +188,18 @@ int main() {
     auto disconnectTimer = std::chrono::steady_clock::time_point{};
     auto lastPollTime = std::chrono::steady_clock::now();
 
+    // ── Deferred SDK calls ───────────────────────────────────────────────
+    // The Discord SDK does not tolerate being re-entered synchronously from
+    // within its own completion callbacks (calling UpdateToken/RefreshToken/
+    // Connect back-to-back from inside another callback reliably segfaults).
+    // Callbacks below schedule follow-up SDK calls here instead of calling
+    // them directly; the main loop drains this queue once per tick, outside
+    // of discordpp::RunCallbacks().
+    std::vector<std::function<void()>> pendingActions;
+    DeferFn defer = [&pendingActions](std::function<void()> fn) {
+        pendingActions.push_back(std::move(fn));
+    };
+
     // ── Status callback ───────────────────────────────────────────────────
     // Forward-declared; defined after auth wiring below so it can trigger re-auth.
     std::function<void()> doOnAuthError;
@@ -208,9 +221,12 @@ int main() {
                           << discordpp::Client::ErrorToString(error)
                           << " detail=" << errorDetail << std::endl;
                 // Close code 4004 = Authentication failed, try to recover.
+                // doOnAuthError() calls back into the SDK (RefreshToken/
+                // Connect), which must not happen synchronously from inside
+                // this StatusChangedCallback — defer it.
                 if (errorDetail == 4004 && !authRecovering.exchange(true)) {
                     ready.store(false);
-                    doOnAuthError();
+                    defer([&doOnAuthError]() { doOnAuthError(); });
                 }
             }
         });
@@ -225,7 +241,7 @@ int main() {
             const std::string& refreshToken) {
             connectWithToken(client, appId, tokenFile,
                              doStartOAuth, doConnectWithToken,
-                             accessToken, refreshToken);
+                             accessToken, refreshToken, defer);
         };
 
     doStartOAuth = [&]() {
@@ -233,11 +249,15 @@ int main() {
     };
 
     auto doTryRefresh = [&]() {
-        tryRefresh(client, appId, tokenFile, doStartOAuth, doConnectWithToken);
+        tryRefresh(client, appId, tokenFile, doStartOAuth, doConnectWithToken,
+                   defer);
     };
 
     // On auth error (4004): try refresh, fall through to OAuth.
     // Guard resets only on successful token exchange, preventing retry storms.
+    // doOnAuthError itself is only ever invoked via `defer` (see the status
+    // callback above), so it always runs top-level — safe to call tryRefresh/
+    // startOAuth directly here.
     doOnAuthError = [&]() {
         auto wrappedConnect =
             [&](const std::string& accessToken,
@@ -249,7 +269,8 @@ int main() {
             startOAuth(client, lastfm, appId, wrappedConnect, running);
             authRecovering.store(false);
         };
-        tryRefresh(client, appId, tokenFile, wrappedOAuth, wrappedConnect);
+        tryRefresh(client, appId, tokenFile, wrappedOAuth, wrappedConnect,
+                   defer);
     };
 
     // ── Startup: try saved access token first, then refresh, then OAuth ────
@@ -264,12 +285,12 @@ int main() {
                 if (r.Successful()) {
                     std::cout << "[auth] access token valid, connecting..."
                               << std::endl;
-                    client->Connect();
+                    defer([&client]() { client->Connect(); });
                 } else {
                     std::cout << "[auth] access token expired, "
                                  "trying refresh..."
                               << std::endl;
-                    doTryRefresh();
+                    defer([&doTryRefresh]() { doTryRefresh(); });
                 }
             });
     } else if (savedTokens.has_value() && !savedTokens->refreshToken.empty()) {
@@ -282,6 +303,15 @@ int main() {
     // ── Main loop ─────────────────────────────────────────────────────────
     while (running.load()) {
         discordpp::RunCallbacks();
+
+        // Run anything callbacks scheduled via `defer` above — always
+        // outside of RunCallbacks(), never nested inside an SDK callback.
+        if (!pendingActions.empty()) {
+            std::vector<std::function<void()>> actions;
+            actions.swap(pendingActions);
+            for (auto& action : actions)
+                action();
+        }
 
         auto now = std::chrono::steady_clock::now();
         auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(

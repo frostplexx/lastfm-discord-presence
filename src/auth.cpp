@@ -20,64 +20,76 @@ void connectWithToken(
     const std::function<void()>& startOAuthFn,
     const std::function<void(const std::string&, const std::string&)>& connectWithTokenFn,
     const std::string& accessToken,
-    const std::string& refreshToken)
+    const std::string& refreshToken,
+    const DeferFn& defer)
 {
     TokenStore::Save({accessToken, refreshToken}, tokenFile);
     client->UpdateToken(
         discordpp::AuthorizationTokenType::Bearer, accessToken,
-        [client, appId, tokenFile, startOAuthFn, connectWithTokenFn](
+        [client, appId, tokenFile, startOAuthFn, connectWithTokenFn, defer](
             discordpp::ClientResult r) {
-            if (r.Successful()) {
-                std::cout << "[auth] token updated, connecting..."
-                          << std::endl;
-                client->Connect();
-
-                // Proactive token refresh: SDK fires this before expiry.
-                client->SetTokenExpirationCallback(
-                    [client, appId, tokenFile,
-                     startOAuthFn, connectWithTokenFn]() {
-                        std::cout
-                            << "[auth] token expiring soon, refreshing..."
-                            << std::endl;
-                        auto saved = TokenStore::Load(tokenFile);
-                        if (saved && !saved->refreshToken.empty()) {
-                            client->RefreshToken(
-                                appId, saved->refreshToken,
-                                [client, tokenFile,
-                                 startOAuthFn, connectWithTokenFn](
-                                    discordpp::ClientResult result,
-                                    std::string accessToken_,
-                                    std::string refreshToken_,
-                                    discordpp::AuthorizationTokenType,
-                                    int32_t,
-                                    std::string) {
-                                    if (result.Successful()) {
-                                        std::cout
-                                            << "[auth] token refreshed!"
-                                            << std::endl;
-                                        connectWithTokenFn(
-                                            accessToken_, refreshToken_);
-                                    } else {
-                                        std::cerr
-                                            << "[auth] refresh failed ("
-                                            << result.Error()
-                                            << "), starting OAuth..."
-                                            << std::endl;
-                                        TokenStore::Clear(tokenFile);
-                                        startOAuthFn();
-                                    }
-                                });
-                        } else {
-                            std::cout
-                                << "[auth] no refresh token, starting OAuth..."
-                                << std::endl;
-                            startOAuthFn();
-                        }
-                    });
-            } else {
+            if (!r.Successful()) {
                 std::cerr << "[auth] UpdateToken failed: "
                           << r.Error() << std::endl;
+                return;
             }
+
+            std::cout << "[auth] token updated, connecting..." << std::endl;
+            // client->Connect() must not run synchronously from inside this
+            // UpdateToken completion callback (nested SDK re-entry) — defer
+            // it to the next main-loop tick.
+            defer([client]() { client->Connect(); });
+
+            // Proactive token refresh: SDK fires this before expiry. This
+            // itself is an SDK callback dispatch, so anything it does that
+            // calls back into the SDK (RefreshToken below) must also defer.
+            client->SetTokenExpirationCallback(
+                [client, appId, tokenFile, startOAuthFn, connectWithTokenFn,
+                 defer]() {
+                    std::cout << "[auth] token expiring soon, refreshing..."
+                              << std::endl;
+                    auto saved = TokenStore::Load(tokenFile);
+                    if (!saved || saved->refreshToken.empty()) {
+                        std::cout << "[auth] no refresh token, "
+                                     "starting OAuth..." << std::endl;
+                        defer([startOAuthFn]() { startOAuthFn(); });
+                        return;
+                    }
+
+                    std::string savedRefreshToken = saved->refreshToken;
+                    defer([client, appId, tokenFile, startOAuthFn,
+                           connectWithTokenFn, defer, savedRefreshToken]() {
+                        client->RefreshToken(
+                            appId, savedRefreshToken,
+                            [tokenFile, startOAuthFn, connectWithTokenFn,
+                             defer](
+                                discordpp::ClientResult result,
+                                std::string accessToken_,
+                                std::string refreshToken_,
+                                discordpp::AuthorizationTokenType,
+                                int32_t,
+                                std::string) {
+                                if (result.Successful()) {
+                                    std::cout << "[auth] token refreshed!"
+                                              << std::endl;
+                                    defer([connectWithTokenFn, accessToken_,
+                                           refreshToken_]() {
+                                        connectWithTokenFn(accessToken_,
+                                                           refreshToken_);
+                                    });
+                                } else {
+                                    std::cerr << "[auth] refresh failed ("
+                                              << result.Error()
+                                              << "), starting OAuth..."
+                                              << std::endl;
+                                    TokenStore::Clear(tokenFile);
+                                    defer([startOAuthFn]() {
+                                        startOAuthFn();
+                                    });
+                                }
+                            });
+                    });
+                });
         });
 }
 
@@ -184,12 +196,17 @@ void startOAuth(
 }
 
 // ── tryRefresh ───────────────────────────────────────────────────────────────
+// Only ever invoked from a top-level (non-callback) context (see main.cpp),
+// so the early-return call to startOAuthFn() below is safe to call directly.
+// The RefreshToken completion callback, however, is an SDK callback dispatch,
+// so anything it does that calls back into the SDK must go through `defer`.
 void tryRefresh(
     std::shared_ptr<discordpp::Client> client,
     uint64_t appId,
     const std::string& tokenFile,
     const std::function<void()>& startOAuthFn,
-    const std::function<void(const std::string&, const std::string&)>& connectWithTokenFn)
+    const std::function<void(const std::string&, const std::string&)>& connectWithTokenFn,
+    const DeferFn& defer)
 {
     auto savedTokens = TokenStore::Load(tokenFile);
     if (!savedTokens.has_value() || savedTokens->refreshToken.empty()) {
@@ -203,7 +220,8 @@ void tryRefresh(
               << std::endl;
     client->RefreshToken(
         appId, savedTokens->refreshToken,
-        [&](discordpp::ClientResult result,
+        [tokenFile, startOAuthFn, connectWithTokenFn, defer](
+            discordpp::ClientResult result,
             std::string            accessToken,
             std::string            refreshToken,
             discordpp::AuthorizationTokenType,
@@ -211,13 +229,15 @@ void tryRefresh(
             std::string) {
             if (result.Successful()) {
                 std::cout << "[auth] token refreshed!" << std::endl;
-                connectWithTokenFn(accessToken, refreshToken);
+                defer([connectWithTokenFn, accessToken, refreshToken]() {
+                    connectWithTokenFn(accessToken, refreshToken);
+                });
             } else {
                 std::cerr << "[auth] refresh failed ("
                           << result.Error()
                           << "), starting fresh OAuth..." << std::endl;
                 TokenStore::Clear(tokenFile);
-                startOAuthFn();
+                defer([startOAuthFn]() { startOAuthFn(); });
             }
         });
 }
