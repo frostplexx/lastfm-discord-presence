@@ -1,5 +1,6 @@
 #include "utils.h"
 
+#include <algorithm>
 #include <cstdlib>
 #include <cctype>
 #include <sstream>
@@ -76,4 +77,19 @@ bool TrackId::operator==(const TrackId& o) const {
 }
 bool TrackId::operator!=(const TrackId& o) const {
     return !(*this == o);
+}
+
+// ── oneLine ──────────────────────────────────────────────────────────────────
+// Collapse a response body to a single log line: strip CR/LF, cap length.
+std::string oneLine(const std::string& s, size_t maxLen) {
+    std::string out;
+    out.reserve(std::min(s.size(), maxLen));
+    for (char c : s) {
+        if (c == '\r' || c == '\n')
+            continue;
+        out.push_back(c);
+        if (out.size() >= maxLen)
+            break;
+    }
+    return out;
 }

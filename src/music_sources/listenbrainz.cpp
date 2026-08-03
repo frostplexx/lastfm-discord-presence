@@ -1,4 +1,5 @@
 #include "listenbrainz.h"
+#include "../utils.h"
 
 #include <cstring>
 #include <iostream>
@@ -37,10 +38,11 @@ ListenbrainzClient::~ListenbrainzClient() {
 }
 
 // ── Shared HTTP GET ─────────────────────────────────────────────────────────
-std::optional<std::string> ListenbrainzClient::HttpGet(const std::string& url) {
+HttpResult ListenbrainzClient::HttpGet(const std::string& url) {
+    HttpResult r;
     if (!curl_) {
-        std::cerr << "[listenbrainz] curl not initialized" << std::endl;
-        return std::nullopt;
+        r.error = "curl not initialized";
+        return r;
     }
 
     std::string response;
@@ -51,60 +53,60 @@ std::optional<std::string> ListenbrainzClient::HttpGet(const std::string& url) {
 
     CURLcode res = curl_easy_perform(curl_);
     if (res != CURLE_OK) {
-        std::cerr << "[listenbrainz] HTTP error: " << curl_easy_strerror(res)
-                  << std::endl;
-        return std::nullopt;
+        r.error = "HTTP error: " + std::string(curl_easy_strerror(res));
+        return r;
     }
 
     long httpCode = 0;
     curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &httpCode);
     if (httpCode != 200) {
-        std::cerr << "[listenbrainz] HTTP " << httpCode << ": "
-                  << response.substr(0, 256) << std::endl;
-        return std::nullopt;
+        r.error = "HTTP " + std::to_string(httpCode) + ": "
+                + oneLine(response);
+        return r;
     }
 
-    return response;
+    r.ok = true;
+    r.body = std::move(response);
+    return r;
 }
 
 // ── NowPlaying ──────────────────────────────────────────────────────────────
-std::optional<Track> ListenbrainzClient::NowPlaying(const std::string& user) {
+SourceResult ListenbrainzClient::NowPlaying(const std::string& user) {
     std::string url = "https://api.listenbrainz.org/1/user/" + user
                     + "/playing-now";
 
-    auto body = HttpGet(url);
-    if (!body)
-        return std::nullopt;
+    auto r = HttpGet(url);
+    if (!r.ok)
+        return {SourceResultKind::Error, {}, std::move(r.error)};
 
     // Parse JSON
     json root;
     try {
-        root = json::parse(*body);
+        root = json::parse(r.body);
     } catch (const json::parse_error& e) {
-        std::cerr << "[listenbrainz] JSON parse error: " << e.what()
-                  << std::endl;
-        return std::nullopt;
+        return {SourceResultKind::Error, {},
+                "JSON parse error: " + std::string(e.what())};
     }
 
     // Navigate to payload
     if (!root.contains("payload") || !root["payload"].is_object())
-        return std::nullopt;
+        return {}; // Idle
 
     auto& payload = root["payload"];
 
     // Check if there's anything playing
     bool playingNow = payload.value("playing_now", false);
     if (!playingNow)
-        return std::nullopt;
+        return {}; // Idle
 
     if (!payload.contains("listens") || !payload["listens"].is_array() ||
         payload["listens"].empty())
-        return std::nullopt;
+        return {}; // Idle
 
     auto& listen = payload["listens"][0];
     if (!listen.contains("track_metadata") ||
         !listen["track_metadata"].is_object())
-        return std::nullopt;
+        return {}; // Idle
 
     auto& tm = listen["track_metadata"];
 
@@ -112,10 +114,8 @@ std::optional<Track> ListenbrainzClient::NowPlaying(const std::string& user) {
     std::string name   = tm.value("track_name", "");
     std::string album  = tm.value("release_name", "");
 
-    if (artist.empty() || name.empty()) {
-        std::cerr << "[listenbrainz] incomplete track data" << std::endl;
-        return std::nullopt;
-    }
+    if (artist.empty() || name.empty())
+        return {SourceResultKind::Error, {}, "incomplete track data"};
 
     // Try album art via CoverArtArchive if we have a release MBID.
     std::string imageUrl;
@@ -140,15 +140,17 @@ std::optional<Track> ListenbrainzClient::NowPlaying(const std::string& user) {
     t.artistUrl = {};
     t.albumUrl  = {};
 
-    return t;
+    return {SourceResultKind::Playing, std::move(t), {}};
 }
 
 // ── ListenbrainzSource ───────────────────────────────────────────────────────
 ListenbrainzSource::ListenbrainzSource(std::string user)
     : user_(std::move(user)) {}
 
-std::optional<Track> ListenbrainzSource::NowPlaying() {
-    return client_.NowPlaying(user_);
+SourceResult ListenbrainzSource::NowPlaying() {
+    if (InBackoff())
+        return {}; // quiet skip while backing off
+    return CheckedResult(client_.NowPlaying(user_), "[listenbrainz]");
 }
 
 SourceBranding ListenbrainzSource::Branding() const {

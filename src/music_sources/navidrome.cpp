@@ -1,5 +1,6 @@
 #include "navidrome.h"
 #include "../md5.h"
+#include "../utils.h"
 
 #include <chrono>
 #include <iostream>
@@ -86,10 +87,11 @@ std::string NavidromeClient::authQuery() const {
 }
 
 // ── Shared HTTP GET ─────────────────────────────────────────────────────────
-std::optional<std::string> NavidromeClient::HttpGet(const std::string& url) {
+HttpResult NavidromeClient::HttpGet(const std::string& url) {
+    HttpResult r;
     if (!curl_) {
-        std::cerr << "[navidrome] curl not initialized" << std::endl;
-        return std::nullopt;
+        r.error = "curl not initialized";
+        return r;
     }
 
     std::string response;
@@ -100,56 +102,55 @@ std::optional<std::string> NavidromeClient::HttpGet(const std::string& url) {
 
     CURLcode res = curl_easy_perform(curl_);
     if (res != CURLE_OK) {
-        std::cerr << "[navidrome] HTTP error: " << curl_easy_strerror(res)
-                  << std::endl;
-        return std::nullopt;
+        r.error = "HTTP error: " + std::string(curl_easy_strerror(res));
+        return r;
     }
 
     long httpCode = 0;
     curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &httpCode);
     if (httpCode != 200) {
-        std::cerr << "[navidrome] HTTP " << httpCode << ": "
-                  << response.substr(0, 256) << std::endl;
-        return std::nullopt;
+        r.error = "HTTP " + std::to_string(httpCode) + ": "
+                + oneLine(response);
+        return r;
     }
 
-    return response;
+    r.ok = true;
+    r.body = std::move(response);
+    return r;
 }
 
 // ── NowPlaying ──────────────────────────────────────────────────────────────
-std::optional<Track> NavidromeClient::NowPlaying(const std::string& targetUsername) {
+SourceResult NavidromeClient::NowPlaying(const std::string& targetUsername) {
     std::string url = host_ + "/rest/getNowPlaying.view?" + authQuery();
 
-    auto body = HttpGet(url);
-    if (!body)
-        return std::nullopt;
+    auto r = HttpGet(url);
+    if (!r.ok)
+        return {SourceResultKind::Error, {}, std::move(r.error)};
 
     json root;
     try {
-        root = json::parse(*body);
+        root = json::parse(r.body);
     } catch (const json::parse_error& e) {
-        std::cerr << "[navidrome] JSON parse error: " << e.what() << std::endl;
-        return std::nullopt;
+        return {SourceResultKind::Error, {},
+                "JSON parse error: " + std::string(e.what())};
     }
 
     if (!root.contains("subsonic-response"))
-        return std::nullopt;
+        return {SourceResultKind::Error, {}, "unexpected response"};
     auto& resp = root["subsonic-response"];
 
     if (resp.value("status", "") != "ok") {
+        std::string msg = "API error: unexpected response";
         if (resp.contains("error") && resp["error"].is_object()) {
             auto& err = resp["error"];
-            std::cerr << "[navidrome] API error " << err.value("code", 0)
-                       << ": " << err.value("message", "unknown") << std::endl;
-        } else {
-            std::cerr << "[navidrome] API error: unexpected response"
-                      << std::endl;
+            msg = "API error " + std::to_string(err.value("code", 0)) + ": "
+                + err.value("message", "unknown");
         }
-        return std::nullopt;
+        return {SourceResultKind::Error, {}, std::move(msg)};
     }
 
     if (!resp.contains("nowPlaying") || !resp["nowPlaying"].contains("entry"))
-        return std::nullopt;
+        return {}; // Idle
 
     for (auto& entry : resp["nowPlaying"]["entry"]) {
         if (entry.value("username", "") != targetUsername)
@@ -186,12 +187,12 @@ std::optional<Track> NavidromeClient::NowPlaying(const std::string& targetUserna
         t.trackUrl = !t.albumUrl.empty() ? t.albumUrl : host_;
 
         if (t.artist.empty() || t.name.empty())
-            return std::nullopt;
+            return {SourceResultKind::Error, {}, "incomplete track data"};
 
-        return t;
+        return {SourceResultKind::Playing, std::move(t), {}};
     }
 
-    return std::nullopt; // target user isn't in the now-playing list
+    return {}; // Idle: target user isn't in the now-playing list
 }
 
 // ── NavidromeSource ──────────────────────────────────────────────────────────
@@ -202,8 +203,10 @@ NavidromeSource::NavidromeSource(std::string host, std::string adminUser,
       host_(normalizeHost(std::move(host))),
       targetUsername_(std::move(targetUsername)) {}
 
-std::optional<Track> NavidromeSource::NowPlaying() {
-    return client_.NowPlaying(targetUsername_);
+SourceResult NavidromeSource::NowPlaying() {
+    if (InBackoff())
+        return {}; // quiet skip while backing off
+    return CheckedResult(client_.NowPlaying(targetUsername_), "[navidrome]");
 }
 
 SourceBranding NavidromeSource::Branding() const {

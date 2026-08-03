@@ -88,6 +88,8 @@ docker run --rm -it \
 | `SOURCE_SHOW_BUTTON`        | no                           | `1`                         | Show the "View on ..." button                                         |
 | `SOURCE_SHOW_SMALL_IMAGE`   | no                           | `1`                         | Show the source logo as a small image overlay (Last.fm only)          |
 | `SOURCE_DISCONNECT_DELAY_SEC` | no                         | `30`                        | Seconds of no track from any source before disconnecting from Discord |
+| `SOURCE_BACKOFF_BASE_SEC`   | no                           | `10`                        | Exponential backoff base for failing sources (seconds). Delay = base × 2^failures, capped at `SOURCE_BACKOFF_MAX_SEC`. A source in backoff is skipped until its delay elapses |
+| `SOURCE_BACKOFF_MAX_SEC`    | no                           | `300`                       | Maximum backoff delay for a failing source (seconds). Errors log only while the delay is still growing, so a long outage stays quiet |
 | `DISCORD_TOKEN_FILE`        | no                           | `~/.lastfm-discord-token`  | Path to saved OAuth token file                                         |
 
 

@@ -14,15 +14,16 @@ public:
     ~ListenbrainzClient();
 
     // Query the user's currently playing track.
-    // Returns nullopt if nothing is playing right now or on error.
-    std::optional<Track> NowPlaying(const std::string& user);
+    // Playing: a track is active. Idle: nothing playing.
+    // Error: the request failed (timeout, HTTP error, bad response).
+    SourceResult NowPlaying(const std::string& user);
 
 private:
     // Non-copyable
     ListenbrainzClient(const ListenbrainzClient&) = delete;
     ListenbrainzClient& operator=(const ListenbrainzClient&) = delete;
 
-    std::optional<std::string> HttpGet(const std::string& url);
+    HttpResult HttpGet(const std::string& url);
 
     void* curl_{nullptr};
 };
@@ -32,7 +33,7 @@ class ListenbrainzSource : public MusicSource {
 public:
     ListenbrainzSource(std::string user);
 
-    std::optional<Track> NowPlaying() override;
+    SourceResult NowPlaying() override;
     SourceBranding Branding() const override;
 
 private:

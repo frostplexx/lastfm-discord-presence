@@ -29,10 +29,11 @@ LastfmClient::~LastfmClient() {
 }
 
 // ── Shared HTTP GET ─────────────────────────────────────────────────────────
-std::optional<std::string> LastfmClient::HttpGet(const std::string& url) {
+HttpResult LastfmClient::HttpGet(const std::string& url) {
+    HttpResult r;
     if (!curl_) {
-        std::cerr << "[lastfm] curl not initialized" << std::endl;
-        return std::nullopt;
+        r.error = "curl not initialized";
+        return r;
     }
 
     std::string response;
@@ -43,20 +44,21 @@ std::optional<std::string> LastfmClient::HttpGet(const std::string& url) {
 
     CURLcode res = curl_easy_perform(curl_);
     if (res != CURLE_OK) {
-        std::cerr << "[lastfm] HTTP error: " << curl_easy_strerror(res)
-                  << std::endl;
-        return std::nullopt;
+        r.error = "HTTP error: " + std::string(curl_easy_strerror(res));
+        return r;
     }
 
     long httpCode = 0;
     curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &httpCode);
     if (httpCode != 200) {
-        std::cerr << "[lastfm] HTTP " << httpCode << ": "
-                  << response.substr(0, 256) << std::endl;
-        return std::nullopt;
+        r.error = "HTTP " + std::to_string(httpCode) + ": "
+                + oneLine(response);
+        return r;
     }
 
-    return response;
+    r.ok = true;
+    r.body = std::move(response);
+    return r;
 }
 
 // ── Shared HTTP POST (form-urlencoded) ──────────────────────────────────────
@@ -120,8 +122,8 @@ static std::string extractImage(const json& track, const std::string& size) {
 }
 
 // ── NowPlaying ──────────────────────────────────────────────────────────────
-std::optional<Track> LastfmClient::NowPlaying(const std::string& apiKey,
-                                              const std::string& user) {
+SourceResult LastfmClient::NowPlaying(const std::string& apiKey,
+                                      const std::string& user) {
     std::ostringstream url;
     url << "https://ws.audioscrobbler.com/2.0/"
         << "?method=user.getrecenttracks"
@@ -130,31 +132,31 @@ std::optional<Track> LastfmClient::NowPlaying(const std::string& apiKey,
         << "&limit=1"
         << "&format=json";
 
-    auto body = HttpGet(url.str());
-    if (!body)
-        return std::nullopt;
+    auto r = HttpGet(url.str());
+    if (!r.ok)
+        return {SourceResultKind::Error, {}, std::move(r.error)};
 
     // Parse JSON
     json root;
     try {
-        root = json::parse(*body);
+        root = json::parse(r.body);
     } catch (const json::parse_error& e) {
-        std::cerr << "[lastfm] JSON parse error: " << e.what() << std::endl;
-        return std::nullopt;
+        return {SourceResultKind::Error, {},
+                "JSON parse error: " + std::string(e.what())};
     }
 
     // Check for API error
     if (root.contains("error")) {
         int code = root["error"].get<int>();
         std::string msg = root.value("message", "unknown");
-        std::cerr << "[lastfm] API error " << code << ": " << msg << std::endl;
-        return std::nullopt;
+        return {SourceResultKind::Error, {},
+                "API error " + std::to_string(code) + ": " + msg};
     }
 
     // Navigate to first track
     auto& rt = root["recenttracks"];
     if (rt.is_null() || !rt.contains("track") || rt["track"].empty())
-        return std::nullopt;
+        return {}; // Idle
 
     auto& track = rt["track"][0];
 
@@ -166,7 +168,7 @@ std::optional<Track> LastfmClient::NowPlaying(const std::string& apiKey,
                       attr.value("nowplaying", "") == "true");
     }
     if (!nowPlaying)
-        return std::nullopt;
+        return {}; // Idle
 
     Track t;
     t.artist    = track["artist"].value("#text", "");
@@ -175,12 +177,10 @@ std::optional<Track> LastfmClient::NowPlaying(const std::string& apiKey,
     t.imageUrl  = extractImage(track, "large");
     t.trackUrl  = track.value("url", "");
 
-    if (t.artist.empty() || t.name.empty()) {
-        std::cerr << "[lastfm] incomplete track data" << std::endl;
-        return std::nullopt;
-    }
+    if (t.artist.empty() || t.name.empty())
+        return {SourceResultKind::Error, {}, "incomplete track data"};
 
-    return t;
+    return {SourceResultKind::Playing, std::move(t), {}};
 }
 
 // ── GetTrackDuration ────────────────────────────────────────────────────────
@@ -195,13 +195,15 @@ std::optional<int> LastfmClient::GetTrackDuration(const std::string& apiKey,
         << "&api_key=" << curl_easy_escape(curl_, apiKey.c_str(), apiKey.size())
         << "&format=json";
 
-    auto body = HttpGet(url.str());
-    if (!body)
+    auto r = HttpGet(url.str());
+    if (!r.ok) {
+        std::cerr << "[lastfm] duration " << r.error << std::endl;
         return std::nullopt;
+    }
 
     json root;
     try {
-        root = json::parse(*body);
+        root = json::parse(r.body);
     } catch (const json::parse_error& e) {
         std::cerr << "[lastfm] duration JSON parse error: " << e.what() << std::endl;
         return std::nullopt;
@@ -237,16 +239,17 @@ std::optional<int> LastfmClient::GetTrackDuration(const std::string& apiKey,
 LastfmSource::LastfmSource(std::string apiKey, std::string user)
     : apiKey_(std::move(apiKey)), user_(std::move(user)) {}
 
-std::optional<Track> LastfmSource::NowPlaying() {
-    auto track = client_.NowPlaying(apiKey_, user_);
-    if (!track.has_value())
-        return std::nullopt;
-
-    track->artistUrl = artistUrlFromName(track->artist);
-    if (!track->album.empty())
-        track->albumUrl = albumUrlFromNames(track->artist, track->album);
-
-    return track;
+SourceResult LastfmSource::NowPlaying() {
+    if (InBackoff())
+        return {}; // quiet skip while backing off
+    auto result = CheckedResult(client_.NowPlaying(apiKey_, user_), "[lastfm]");
+    if (result.kind == SourceResultKind::Playing) {
+        result.track.artistUrl = artistUrlFromName(result.track.artist);
+        if (!result.track.album.empty())
+            result.track.albumUrl =
+                albumUrlFromNames(result.track.artist, result.track.album);
+    }
+    return result;
 }
 
 void LastfmSource::FillDuration(Track& t) {

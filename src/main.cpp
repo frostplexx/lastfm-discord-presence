@@ -155,6 +155,16 @@ int main() {
     if (const char* v = std::getenv("SOURCE_DISCONNECT_DELAY_SEC"))
         disconnectDelaySec = std::max(1, std::atoi(v));
 
+    // Exponential backoff for failing sources: base * 2^failures, capped.
+    int backoffBaseSec = 10;
+    if (const char* v = std::getenv("SOURCE_BACKOFF_BASE_SEC"))
+        backoffBaseSec = std::max(1, std::atoi(v));
+    int backoffMaxSec = 300;
+    if (const char* v = std::getenv("SOURCE_BACKOFF_MAX_SEC"))
+        backoffMaxSec = std::max(backoffBaseSec, std::atoi(v));
+    multiSource->SetBackoffParams(std::chrono::seconds(backoffBaseSec),
+                                  std::chrono::seconds(backoffMaxSec));
+
     // ── Signal handlers ───────────────────────────────────────────────────
     std::signal(SIGINT, signalHandler);
     std::signal(SIGTERM, signalHandler);
@@ -163,6 +173,8 @@ int main() {
               << "  sources:    " << musicSources << "\n"
               << "  poll every: " << pollIntervalSec << "s\n"
               << "  disconnect: " << disconnectDelaySec << "s\n"
+              << "  backoff:    " << backoffBaseSec << "s base, "
+              << backoffMaxSec << "s max\n"
               << "  token:      " << tokenFile << "\n"
               << std::endl;
 

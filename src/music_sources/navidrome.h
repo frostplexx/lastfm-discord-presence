@@ -21,16 +21,17 @@ public:
     ~NavidromeClient();
 
     // Query the server-wide now-playing list and return the entry matching
-    // `targetUsername`, if any. Returns nullopt if that user isn't playing
-    // anything right now, or on error.
-    std::optional<Track> NowPlaying(const std::string& targetUsername);
+    // `targetUsername`, if any.
+    // Playing: that user has a track active. Idle: user isn't playing
+    // anything. Error: the request failed (timeout, HTTP error, bad response).
+    SourceResult NowPlaying(const std::string& targetUsername);
 
 private:
     // Non-copyable
     NavidromeClient(const NavidromeClient&) = delete;
     NavidromeClient& operator=(const NavidromeClient&) = delete;
 
-    std::optional<std::string> HttpGet(const std::string& url);
+    HttpResult HttpGet(const std::string& url);
     std::string escape(const std::string& raw) const;
 
     // Subsonic token auth: t = md5(password + salt), s = salt.
@@ -49,7 +50,7 @@ public:
     NavidromeSource(std::string host, std::string adminUser,
                     std::string adminPassword, std::string targetUsername);
 
-    std::optional<Track> NowPlaying() override;
+    SourceResult NowPlaying() override;
     // Navidrome's getNowPlaying.view already includes duration; nothing to fill.
     SourceBranding Branding() const override;
 

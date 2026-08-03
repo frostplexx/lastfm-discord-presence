@@ -19,6 +19,9 @@ std::string artistUrlFromName(const std::string& artist);
 std::string albumUrlFromNames(const std::string& artist,
                               const std::string& album);
 
+// Collapse a string to a single log line: strip CR/LF, cap length.
+std::string oneLine(const std::string& s, size_t maxLen = 160);
+
 // Track identity — used for change detection between polls.
 struct TrackId {
     std::string artist;

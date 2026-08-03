@@ -119,14 +119,15 @@ void poll(
     bool shareUsername,
     bool showSmallImage)
 {
-    auto track = source.NowPlaying();
+    auto result = source.NowPlaying();
+    std::optional<Track> track;
+    if (result.kind == SourceResultKind::Playing)
+        track = std::move(result.track);
     TrackId current;
-    bool hasTrack = false;
+    bool hasTrack = track.has_value();
 
-    if (track.has_value()) {
+    if (hasTrack)
         current  = {track->artist, track->name};
-        hasTrack = true;
-    }
 
     // Check state vs last time we acted (posted or cleared)
     // Also detect source switches (same TrackId from a different backend).

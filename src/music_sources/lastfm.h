@@ -12,9 +12,10 @@ public:
     ~LastfmClient();
 
     // Query the user's currently scrobbling track.
-    // Returns nullopt if nothing is playing right now or on error.
-    std::optional<Track> NowPlaying(const std::string& apiKey,
-                                    const std::string& user);
+    // Playing: a track is active. Idle: nothing playing.
+    // Error: the request failed (timeout, HTTP error, bad response).
+    SourceResult NowPlaying(const std::string& apiKey,
+                            const std::string& user);
 
     // Fetch track duration from track.getInfo.
     // Returns duration in seconds, or nullopt on failure.
@@ -32,7 +33,7 @@ private:
     LastfmClient& operator=(const LastfmClient&) = delete;
 
     // Shared HTTP GET helper
-    std::optional<std::string> HttpGet(const std::string& url);
+    HttpResult HttpGet(const std::string& url);
 
     // CURL easy handle (RAII via constructor/destructor)
     void* curl_{nullptr};
@@ -43,7 +44,7 @@ class LastfmSource : public MusicSource {
 public:
     LastfmSource(std::string apiKey, std::string user);
 
-    std::optional<Track> NowPlaying() override;
+    SourceResult NowPlaying() override;
     void FillDuration(Track& t) override;
     SourceBranding Branding() const override;
 
