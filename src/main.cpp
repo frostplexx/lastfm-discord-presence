@@ -186,7 +186,10 @@ int main() {
             std::cout << "[sdk] " << EnumToString(severity) << " "
                       << message << std::endl;
         },
-        discordpp::LoggingSeverity::Info);
+        // Error only: SDK Warning-level messages are benign RPC connect/retry
+        // chatter ("RPC manager reset", "RPC Connect error", ...) that
+        // spams the journal whenever Discord isn't running. Errors still pass.
+        discordpp::LoggingSeverity::Error);
 
     // ── State ─────────────────────────────────────────────────────────────
     std::atomic<bool>       ready{false};
