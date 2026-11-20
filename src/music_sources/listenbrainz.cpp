@@ -117,17 +117,37 @@ SourceResult ListenbrainzClient::NowPlaying(const std::string& user) {
     if (artist.empty() || name.empty())
         return {SourceResultKind::Error, {}, "incomplete track data"};
 
-    // Try album art via CoverArtArchive if we have a release MBID.
+    // Album art via Cover Art Archive. The release MBID can arrive from the
+    // submitting client (additional_info) or from ListenBrainz's own mapping
+    // (mbid_mapping, which also carries the CAA image id).
+    std::string releaseMbid;
+    std::string caaReleaseMbid;
+    long long caaId = 0;
+    for (const char* section : {"mbid_mapping", "additional_info"}) {
+        if (!tm.contains(section) || !tm[section].is_object())
+            continue;
+        const auto& obj = tm[section];
+        if (releaseMbid.empty() && obj.contains("release_mbid") &&
+            obj["release_mbid"].is_string())
+            releaseMbid = obj["release_mbid"].get<std::string>();
+        if (caaReleaseMbid.empty() && obj.contains("caa_release_mbid") &&
+            obj["caa_release_mbid"].is_string())
+            caaReleaseMbid = obj["caa_release_mbid"].get<std::string>();
+        if (caaId == 0 && obj.contains("caa_id") &&
+            obj["caa_id"].is_number_integer())
+            caaId = obj["caa_id"].get<long long>();
+    }
+
+    // A CAA id gives a direct archive.org URL and skips the 307 redirect that
+    // coverartarchive.org issues.
     std::string imageUrl;
-    if (tm.contains("additional_info") && tm["additional_info"].is_object()) {
-        auto& ai = tm["additional_info"];
-        if (ai.contains("release_mbid")) {
-            std::string mbid = ai["release_mbid"].get<std::string>();
-            if (!mbid.empty()) {
-                imageUrl = "https://coverartarchive.org/release/" + mbid
-                         + "/front-250";
-            }
-        }
+    if (!caaReleaseMbid.empty() && caaId > 0) {
+        imageUrl = "https://archive.org/download/mbid-" + caaReleaseMbid
+                 + "/mbid-" + caaReleaseMbid + "-"
+                 + std::to_string(caaId) + "_thumb250.jpg";
+    } else if (!releaseMbid.empty()) {
+        imageUrl = "https://coverartarchive.org/release/" + releaseMbid
+                 + "/front-250";
     }
 
     Track t;

@@ -27,17 +27,13 @@ void postPresence(
     if (!t.artistUrl.empty())
         activity.SetStateUrl(t.artistUrl);
 
-    // Album art as large image
+    // Album art as large image (no art from the source: leave it unset)
     discordpp::ActivityAssets assets;
     if (!t.imageUrl.empty()) {
         assets.SetLargeImage(t.imageUrl);
         assets.SetLargeText(t.album.empty() ? t.artist : t.album);
         if (!t.albumUrl.empty())
             assets.SetLargeUrl(t.albumUrl);
-    } else {
-        assets.SetLargeImage(
-            "https://www.last.fm/static/images/lastfm_avatar_twitter.png");
-        assets.SetLargeText(branding.name);
     }
 
     // Small image: source logo overlay (optional, skipped if the source has none)
