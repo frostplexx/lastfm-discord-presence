@@ -1,0 +1,8 @@
+{
+  "network": {
+    "allowedDomains": [
+      "api.listenbrainz.org",
+      "coverartarchive.org"
+    ]
+  }
+}

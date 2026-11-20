@@ -25,6 +25,7 @@ struct SourceResult {
 // wrapper can log failures at throttled (backoff) intervals.
 struct HttpResult {
     bool ok = false;
+    long status = 0;       // HTTP response code (0 = no response)
     std::string body;
     std::string error;     // non-empty when !ok
 };

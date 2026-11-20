@@ -77,6 +77,7 @@ HttpResult ListenbrainzClient::HttpGet(const std::string& url) {
 
     long httpCode = 0;
     curl_easy_getinfo(curl_, CURLINFO_RESPONSE_CODE, &httpCode);
+    r.status = httpCode;
     if (httpCode != 200) {
         r.error = "HTTP " + std::to_string(httpCode) + ": "
                 + oneLine(response);
@@ -226,12 +227,24 @@ std::string ListenbrainzClient::LookupCoverArt(const std::string& artist,
     if (releaseMbid.empty())
         return {};
 
-    // Cover Art Archive reports a missing front via HTTP 404, which Discord
-    // renders as no image. Checking first would need another request, so the
-    // URL goes out as-is.
-    std::string imageUrl = "https://coverartarchive.org/release/" + releaseMbid
-                         + "/front-250";
-    artCache_[cacheKey] = imageUrl;
+    // Cover Art Archive answers with a 307 to archive.org, which Discord's
+    // proxy does not follow. Resolve the chain here and pass the final URL.
+    curl_easy_setopt(curl_, CURLOPT_FOLLOWLOCATION, 1L);
+    auto art = HttpGet("https://coverartarchive.org/release/" + releaseMbid
+                       + "/front-250");
+    curl_easy_setopt(curl_, CURLOPT_FOLLOWLOCATION, 0L);
+
+    std::string imageUrl;
+    if (art.ok) {
+        char* effectiveUrl = nullptr;
+        curl_easy_getinfo(curl_, CURLINFO_EFFECTIVE_URL, &effectiveUrl);
+        if (effectiveUrl)
+            imageUrl = effectiveUrl;
+    } else if (art.status != 404) {
+        return {}; // transient, retry on the next poll
+    }
+
+    artCache_[cacheKey] = imageUrl; // 404 means no art exists: cache that too
     return imageUrl;
 }
 
