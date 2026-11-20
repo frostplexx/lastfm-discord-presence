@@ -1,10 +1,12 @@
 #include "listenbrainz.h"
 #include "../utils.h"
 
+#include <chrono>
 #include <cstring>
 #include <iostream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
@@ -25,11 +27,27 @@ std::string userUrl(const std::string& user) {
     return "https://listenbrainz.org/user/" + user;
 }
 
+// Percent-encode a value for use in a query string.
+std::string escapeUrl(CURL* curl, const std::string& value) {
+    char* escaped = curl_easy_escape(curl, value.c_str(),
+                                     static_cast<int>(value.size()));
+    if (!escaped)
+        return {};
+    std::string result(escaped);
+    curl_free(escaped);
+    return result;
+}
+
 } // namespace
 
 // ── Constructor / Destructor ────────────────────────────────────────────────
 ListenbrainzClient::ListenbrainzClient() {
     curl_ = curl_easy_init();
+    // MusicBrainz rejects requests without a User-Agent.
+    if (curl_)
+        curl_easy_setopt(curl_, CURLOPT_USERAGENT,
+                         "lastfm-discord-presence/0.1 ( "
+                         "https://github.com/frostplexx/lastfm-discord-presence )");
 }
 
 ListenbrainzClient::~ListenbrainzClient() {
@@ -148,6 +166,8 @@ SourceResult ListenbrainzClient::NowPlaying(const std::string& user) {
     } else if (!releaseMbid.empty()) {
         imageUrl = "https://coverartarchive.org/release/" + releaseMbid
                  + "/front-250";
+    } else if (!album.empty()) {
+        imageUrl = LookupCoverArt(artist, album);
     }
 
     Track t;
@@ -161,6 +181,58 @@ SourceResult ListenbrainzClient::NowPlaying(const std::string& user) {
     t.albumUrl  = {};
 
     return {SourceResultKind::Playing, std::move(t), {}};
+}
+
+// ── MusicBrainz album art lookup ────────────────────────────────────────────
+std::string ListenbrainzClient::LookupCoverArt(const std::string& artist,
+                                               const std::string& album) {
+    const std::string cacheKey = artist + "\n" + album;
+    auto cached = artCache_.find(cacheKey);
+    if (cached != artCache_.end())
+        return cached->second;
+
+    // MusicBrainz allows one request per second. Space these lookups out; one
+    // happens per previously unseen album.
+    auto waitForRateLimit = [this] {
+        auto now = std::chrono::steady_clock::now();
+        auto nextAllowed = lastMbRequest_ + std::chrono::seconds(1);
+        if (now < nextAllowed)
+            std::this_thread::sleep_until(nextAllowed);
+        lastMbRequest_ = std::chrono::steady_clock::now();
+    };
+
+    std::string query = "release:\"" + album + "\" AND artist:\"" + artist + "\"";
+    waitForRateLimit();
+    auto search = HttpGet("https://musicbrainz.org/ws/2/release?query="
+                          + escapeUrl(curl_, query) + "&fmt=json&limit=1");
+    if (!search.ok)
+        return {}; // transient, retry on the next poll
+
+    json root;
+    try {
+        root = json::parse(search.body);
+    } catch (const json::parse_error&) {
+        return {};
+    }
+
+    if (!root.contains("releases") || !root["releases"].is_array())
+        return {};
+    if (root["releases"].empty()) {
+        artCache_[cacheKey] = {}; // definitive: no matching release
+        return {};
+    }
+
+    std::string releaseMbid = root["releases"][0].value("id", "");
+    if (releaseMbid.empty())
+        return {};
+
+    // Cover Art Archive reports a missing front via HTTP 404, which Discord
+    // renders as no image. Checking first would need another request, so the
+    // URL goes out as-is.
+    std::string imageUrl = "https://coverartarchive.org/release/" + releaseMbid
+                         + "/front-250";
+    artCache_[cacheKey] = imageUrl;
+    return imageUrl;
 }
 
 // ── ListenbrainzSource ───────────────────────────────────────────────────────

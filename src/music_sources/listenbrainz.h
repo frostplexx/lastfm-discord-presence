@@ -1,7 +1,9 @@
 #pragma once
 
+#include <chrono>
 #include <string>
 #include <optional>
+#include <unordered_map>
 
 #include "music_source.h"
 #include "track.h"
@@ -24,6 +26,16 @@ private:
     ListenbrainzClient& operator=(const ListenbrainzClient&) = delete;
 
     HttpResult HttpGet(const std::string& url);
+
+    // Resolve album art via MusicBrainz + Cover Art Archive. Only used when a
+    // playing-now payload carries no release MBID, which is the normal case.
+    // Results (including "no art") are cached per artist+album, because the
+    // web service allows one request per second.
+    std::string LookupCoverArt(const std::string& artist,
+                               const std::string& album);
+
+    std::unordered_map<std::string, std::string> artCache_;
+    std::chrono::steady_clock::time_point lastMbRequest_{};
 
     void* curl_{nullptr};
 };
