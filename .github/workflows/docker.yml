@@ -27,7 +27,7 @@ jobs:
         uses: actions/cache@v6
         with:
           path: vendor/discord-sdk
-          key: discord-sdk-${{ env.SDK_VERSION }}
+          key: discord-sdk-${{ env.SDK_VERSION }}-v2
 
       - name: Download SDK (cache miss)
         if: steps.cache-sdk.outputs.cache-hit != 'true'
@@ -37,15 +37,14 @@ jobs:
           curl --retry 3 --retry-delay 5 -sL "${{ secrets.DISCORD_SDK_URL }}" -o sdk.zip
           unzip -q sdk.zip -d vendor/_tmp
           rm sdk.zip
-          # Locate discordpp.h regardless of zip's top-level structure
-          src=$(find vendor/_tmp -name discordpp.h -print -quit 2>/dev/null)
+          # Locate the platform include dir. The zip also ships xcframework
+          # headers (iOS etc.), so match the include/ path only.
+          src=$(find vendor/_tmp -path '*/include/discordpp.h' -print -quit 2>/dev/null)
           if [ -z "$src" ]; then
             echo "discordpp.h not found in zip"
             exit 1
           fi
-          # SDK root = grandparent of the file's directory
-          #   src=.../DiscordSdk-x/include/discordpp.h → root=.../DiscordSdk-x
-          #   src=.../include/discordpp.h              → root=...
+          # SDK root = parent of the include/ dir
           sdk_root=$(cd "$(dirname "$src")/.." && pwd -P)
           mv "$sdk_root"/* vendor/discord-sdk/
           mv "$sdk_root"/.* vendor/discord-sdk/ 2>/dev/null || true
